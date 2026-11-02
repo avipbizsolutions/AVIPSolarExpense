@@ -38,16 +38,28 @@ class AdvancesActivity : AppCompatActivity() {
         load()
     }
 
+    private var loading = false
+    private val cacheKey get() = if (team) "adv_team" else "adv_me"
+
     private fun load() {
+        if (loading) return
+        loading = true
+        if (data == null) data = Store.load(this, cacheKey)
+        render()
         lifecycleScope.launch {
             val r = withContext(Dispatchers.IO) { runCatching { Api.call(this@AdvancesActivity, "advances", JSONObject().put("team", team)) } }
-            r.onSuccess { data = it; render() }.onFailure { showError(it) }
+            loading = false
+            if (isFinishing) return@launch
+            r.onSuccess { data = it; Store.save(this@AdvancesActivity, cacheKey, it) }
+            render()
+            r.onFailure { showError(it) }
         }
     }
 
     private fun render() {
-        val o = data ?: return
         body.removeAllViews()
+        if (loading) body.addView(updatingBar(), lp())
+        val o = data ?: return
         val people = o.optJSONArray("people")
         if (team && people != null) {
             val list = (0 until people.length()).map { Balance.from(people.getJSONObject(it)) }

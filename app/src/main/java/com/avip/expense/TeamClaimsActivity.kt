@@ -34,6 +34,7 @@ class TeamClaimsActivity : AppCompatActivity() {
     private val selected = linkedSetOf<String>()
     private var status = ""
     private var person = ""
+    private var loading = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,7 +56,23 @@ class TeamClaimsActivity : AppCompatActivity() {
         load()
     }
 
+    /** Claims from the last load, filtered for this screen, so the list shows at once. */
+    private fun fromCache(): List<Claim> {
+        val me = Session.user(this)
+        return Claim.list(Store.load(this, "team")?.optJSONArray("claims")).filter {
+            when (mode) {
+                MODE_APPROVE -> it.status == Status.PENDING && it.memberId != me?.id
+                MODE_PAY -> it.status == Status.APPROVED && it.paidBy == "Self"
+                else -> true
+            }
+        }
+    }
+
     private fun load() {
+        if (loading) return
+        loading = true
+        if (claims.isEmpty()) claims = fromCache()
+        render()
         lifecycleScope.launch {
             val r = withContext(Dispatchers.IO) {
                 runCatching { Api.call(this@TeamClaimsActivity, "teamClaims", JSONObject().put("status", if (mode == MODE_ALL) "" else status)) }
@@ -65,9 +82,12 @@ class TeamClaimsActivity : AppCompatActivity() {
                 val keep = Store.load(this@TeamClaimsActivity, "team") ?: JSONObject()
                 val merged = JSONArray()
                 val ids = mutableSetOf<String>()
-                listOf(o.optJSONArray("claims"), keep.optJSONArray("claims")).forEach { a ->
+                val asked = if (mode == MODE_ALL) "" else status
+                listOf(o.optJSONArray("claims"), keep.optJSONArray("claims")).forEachIndexed { n, a ->
                     for (i in 0 until (a?.length() ?: 0)) {
                         val x = a!!.getJSONObject(i)
+                        // the fresh list is complete for the status asked: old copies with that status are out of date
+                        if (n == 1 && (asked.isBlank() || x.optString("status") == asked)) continue
                         if (ids.add(x.optString("id"))) merged.put(x)
                     }
                 }
@@ -81,13 +101,17 @@ class TeamClaimsActivity : AppCompatActivity() {
                     }
                 }
                 selected.retainAll(claims.map { it.id }.toSet())
-                render()
-            }.onFailure { showError(it) }
+            }
+            loading = false
+            if (isFinishing) return@launch
+            render()
+            r.onFailure { showError(it) }
         }
     }
 
     private fun render() {
         body.removeAllViews()
+        if (loading) body.addView(updatingBar(), lp())
         val people = claims.map { it.member }.filter { it.isNotBlank() }.distinct().sorted()
         if (mode == MODE_ALL) {
             body.addView(chips(listOf(Status.PENDING, Status.APPROVED, Status.REIMBURSED, Status.REJECTED).map { Status.label(it) },
@@ -113,7 +137,7 @@ class TeamClaimsActivity : AppCompatActivity() {
                 setOnClickListener { if (all) selected.removeAll(shown.map { it.id }.toSet()) else selected.addAll(shown.map { it.id }); render() }
             })
         }
-        if (shown.isEmpty()) body.addView(note(when (mode) {
+        if (shown.isEmpty() && !loading) body.addView(note(when (mode) {
             MODE_APPROVE -> tr("कोई claim approval के लिए बाकी नहीं है।", "No claims waiting for approval.")
             MODE_PAY -> tr("कोई approved claim payment के लिए बाकी नहीं है।", "No approved claims waiting for payment.")
             else -> tr("कोई claim नहीं।", "No claims.")

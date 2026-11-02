@@ -149,3 +149,12 @@ fun android.content.Context.note(message: String, bg: Int = Ui.BRAND_LIGHT, fg: 
     setPadding(dp(12), dp(10), dp(12), dp(10))
     setLineSpacing(0f, 1.15f)
 }.also { it.layoutParams = lp().margins(this, b = 12) }
+
+/** Thin "updating" bar shown at the top of a list while fresh data loads. */
+fun android.content.Context.updatingBar(): android.view.View = vertical {
+    addView(ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
+        isIndeterminate = true
+        indeterminateTintList = android.content.res.ColorStateList.valueOf(Ui.SUN)
+    }, lp(MATCH, dp(6)))
+    addView(text(tr("Update हो रहा है…", "Updating…"), 12f, Ui.MUTED), lp().margins(context, b = 6))
+}
