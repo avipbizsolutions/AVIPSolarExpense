@@ -10,7 +10,6 @@ import android.widget.ProgressBar
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -74,21 +73,33 @@ class HomeActivity : AppCompatActivity() {
         setContentView(root)
     }
 
+    private var loadingNow = false
+
+    /** Sends any claims waiting on the phone first, then loads everything in one request. */
     private fun refresh() {
+        if (loadingNow) return
+        loadingNow = true
         loading.visibility = View.VISIBLE
-        Outbox.flush(this)
         lifecycleScope.launch {
             val r = withContext(Dispatchers.IO) {
                 runCatching {
-                    val boot = Api.call(this@HomeActivity, "bootstrap")
-                    val mine = Api.call(this@HomeActivity, "myClaims")
-                    Store.save(this@HomeActivity, "boot", boot)
-                    Store.save(this@HomeActivity, "mine", mine)
-                    boot.optJSONObject("user")?.let { Session.updateUser(this@HomeActivity, User.from(it)) }
+                    Outbox.sendAll(this@HomeActivity)
+                    val home = try {
+                        Api.call(this@HomeActivity, "home")
+                    } catch (e: ApiException) {
+                        // office script not updated yet: the two older requests
+                        if (!e.message.orEmpty().contains("needs updating")) throw e
+                        Api.call(this@HomeActivity, "bootstrap").also { b ->
+                            val m = Api.call(this@HomeActivity, "myClaims")
+                            b.put("claims", m.optJSONArray("claims")).put("advances", m.optJSONArray("advances")).put("balance", m.optJSONObject("balance"))
+                        }
+                    }
+                    Store.save(this@HomeActivity, "boot", home)
+                    Store.save(this@HomeActivity, "mine", home)
+                    home.optJSONObject("user")?.let { Session.updateUser(this@HomeActivity, User.from(it)) }
                 }
             }
-            // give the outbox a moment, so a claim just sent shows as received
-            delay(300)
+            loadingNow = false
             if (isFinishing) return@launch
             loading.visibility = View.GONE
             r.onFailure { e ->
@@ -98,6 +109,27 @@ class HomeActivity : AppCompatActivity() {
             user = Session.user(this@HomeActivity) ?: user
             render()
         }
+    }
+
+    /** When the internet comes back while the app is open, waiting claims go and the list updates. */
+    private val netCallback = object : android.net.ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: android.net.Network) {
+            if (Outbox.all(this@HomeActivity).isNotEmpty()) runOnUiThread { if (!isFinishing) refresh() }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        try {
+            (getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager).registerDefaultNetworkCallback(netCallback)
+        } catch (_: Exception) {}
+    }
+
+    override fun onStop() {
+        super.onStop()
+        try {
+            (getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager).unregisterNetworkCallback(netCallback)
+        } catch (_: Exception) {}
     }
 
     private fun render() {

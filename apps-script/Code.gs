@@ -60,6 +60,7 @@ const HANDLERS = {
   login: function (d) { return authLogin_(APP, d); },
   setPin: function (d) { return authSetPin_(APP, d); },
   bootstrap: bootstrap,
+  home: home,
   myClaims: myClaims,
   submitClaim: submitClaim,
   deleteClaim: deleteClaim,
@@ -280,6 +281,17 @@ function bootstrap(d) {
     res.members = authUsers_(APP).map(function (p) { return { id: p.id, name: p.name, team: p.team }; });
   }
   return res;
+}
+
+/** Everything the home screen needs in one request: lists, totals, counts and own claims. */
+function home(d) {
+  const b = bootstrap(d);
+  const claims = rows(LOG);
+  const advs = rows(ADV);
+  const u = b.user;
+  b.claims = sortNewest(claims.filter(function (c) { return owns(u, c); }).map(function (c) { return claimOut(c, false); })).slice(0, 300);
+  b.advances = advs.filter(function (a) { return sameName(a['Team Member'], u.name); }).map(advOut).reverse();
+  return b;
 }
 
 function myClaims(d) {

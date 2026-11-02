@@ -52,7 +52,18 @@ function authSetPin_(app, d) {
 function authUser_(app, d, allowTempPin) {
   const tok = String(d.token || '').trim();
   if (!tok) throw new Error('SESSION: Please login.');
-  const r = authCall_(app, 'verify', { token: tok });
+  // A checked login is remembered here for a few minutes, so most requests need no
+  // extra call to AVIP Auth. A disabled person or a new PIN still takes effect within that time.
+  const cache = CacheService.getScriptCache();
+  const key = 'au_' + app + '_' + Utilities.base64EncodeWebSafe(
+    Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, tok)).slice(0, 40);
+  let r = null;
+  const hit = cache.get(key);
+  if (hit) { try { r = JSON.parse(hit); } catch (_) { r = null; } }
+  if (!r) {
+    r = authCall_(app, 'verify', { token: tok });
+    if (!r.mustSetPin) cache.put(key, JSON.stringify({ user: r.user, mustSetPin: false }), 300);
+  }
   const u = r.user;
   u.mustSetPin = r.mustSetPin;
   if (!allowTempPin && r.mustSetPin) throw new Error('SESSION: Please set your own PIN first.');

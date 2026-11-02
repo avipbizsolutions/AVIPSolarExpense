@@ -258,27 +258,40 @@ object Outbox {
         return res
     }
 
+    /**
+     * Sends everything waiting, one by one, on the calling (background) thread.
+     * Returns how many were sent. Stops at the first network problem.
+     */
+    fun sendAll(c: Context): Int {
+        if (Session.token(c).isBlank()) return 0
+        val app = c.applicationContext
+        var sent = 0
+        synchronized(this) {
+            for (o in all(app)) {
+                // skip claims the office already refused; they wait for the person to fix or delete them
+                if (o.optString("error").isNotBlank()) continue
+                try {
+                    send(app, o.getJSONObject("claim").getString("id")); sent++
+                } catch (e: ApiException) {
+                    if (e.sessionExpired || e.network) break
+                    markError(app, o, e.message ?: "")
+                } catch (e: Exception) {
+                    markError(app, o, e.message ?: "Could not send")
+                }
+            }
+        }
+        return sent
+    }
+
     /** Tries to send everything waiting, in the background. Safe to call often. */
-    fun flush(c: Context) {
+    fun flush(c: Context, done: ((Int) -> Unit)? = null) {
         if (running || Session.token(c).isBlank()) return
         val app = c.applicationContext
         running = true
         Thread {
-            try {
-                for (o in all(app)) {
-                    // skip claims the office already refused; they wait for the person to fix or delete them
-                    if (o.optString("error").isNotBlank()) continue
-                    try { send(app, o.getJSONObject("claim").getString("id")) } catch (e: ApiException) {
-                        if (e.sessionExpired || e.network) break
-                        // a claim the office refuses (e.g. a removed category) stays here with its reason
-                        markError(app, o, e.message ?: "")
-                    } catch (e: Exception) {
-                        markError(app, o, e.message ?: "Could not send")
-                    }
-                }
-            } finally {
-                running = false
-            }
+            var n = 0
+            try { n = sendAll(app) } finally { running = false }
+            done?.invoke(n)
         }.start()
     }
 
