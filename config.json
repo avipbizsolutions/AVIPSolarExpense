@@ -1,0 +1,4 @@
+{
+  "endpoint": "",
+  "note": "Apps Script web app /exec URL of the AVIP Solar – Team Expense Tracker sheet. Phones read this file on every launch, so no app update is needed when it changes."
+}
