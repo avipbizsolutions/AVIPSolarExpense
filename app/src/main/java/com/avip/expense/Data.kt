@@ -162,7 +162,8 @@ object Photos {
     fun dir(c: Context): File = File(c.filesDir, "bills").apply { mkdirs() }
 
     /** Copies a gallery / file-picker image into the app, upright and shrunk. Returns the file. */
-    fun importUri(c: Context, uri: Uri, name: String): File? = try {
+    fun importUri(c: Context, uri: Uri, name: String): File? {
+        return try {
         val bytes = c.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
         val rotation = try {
             when (ExifInterface(bytes.inputStream()).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
@@ -175,7 +176,8 @@ object Photos {
         val f = File(dir(c), "$name.jpg")
         writeShrunk(decode(bytes), rotation, f)
         f
-    } catch (_: Exception) { null }
+        } catch (_: Exception) { null }
+    }
 
     /** Reads a photo file and returns base64 JPEG, at most ~1600 px on the long side. */
     fun base64(path: String): String? {
