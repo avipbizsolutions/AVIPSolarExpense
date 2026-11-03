@@ -35,7 +35,7 @@ class LoginActivity : AppCompatActivity() {
                 addView(langToggle(), lp(WRAP, WRAP))
             }, lp().margins(context, b = 8))
             addView(badge(R.drawable.ic_sun, Ui.SUN, 72, square = true))
-            addView(text(subtitle, 15f, 0xFFC9D6E2.toInt()) { gravity = Gravity.CENTER }, lp(WRAP, WRAP).margins(context, t = 14))
+            addView(text(subtitle, 15f, 0xFFE4D9F2.toInt()) { gravity = Gravity.CENTER }, lp(WRAP, WRAP).margins(context, t = 14))
             addView(text(title, 26f, Color.WHITE, bold = true) { gravity = Gravity.CENTER }, lp(WRAP, WRAP).margins(context, t = 2))
         }
         form = vertical(24) {

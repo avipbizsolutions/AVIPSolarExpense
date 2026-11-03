@@ -4,7 +4,7 @@
         <item name="colorPrimary">@color/brand</item>
         <item name="colorPrimaryVariant">@color/brand_dark</item>
         <item name="colorSecondary">@color/sun</item>
-        <item name="colorOnSecondary">#10263A</item>
+        <item name="colorOnSecondary">#221A30</item>
         <item name="android:windowBackground">@color/bg</item>
         <item name="android:statusBarColor">@color/brand_dark</item>
         <item name="android:navigationBarColor">#FFFFFF</item>

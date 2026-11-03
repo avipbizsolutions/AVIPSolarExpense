@@ -136,7 +136,7 @@ class ClaimFormActivity : AppCompatActivity() {
     private fun label(t: String): View = text(t, 13f, Ui.MUTED, bold = true).also { it.layoutParams = lp().margins(this, t = 12, b = 6) }
 
     private fun selector(value: String, iconRes: Int, onClick: () -> Unit) = text(value, 16f, Ui.MUTED) {
-        background = rounded(android.graphics.Color.WHITE, dpf(12f), 0xFFB9C5D0.toInt(), dp(1))
+        background = rounded(android.graphics.Color.WHITE, dpf(12f), 0xFFC8BDD8.toInt(), dp(1))
         setPadding(dp(14), dp(13), dp(14), dp(13))
         setCompoundDrawablesRelativeWithIntrinsicBounds(0, 0, iconRes, 0)
         compoundDrawableTintList = android.content.res.ColorStateList.valueOf(Ui.BRAND)

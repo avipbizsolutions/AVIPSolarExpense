@@ -24,22 +24,22 @@ import androidx.core.content.ContextCompat
 
 /** Small helpers so screens can be built in code with one consistent look. */
 object Ui {
-    const val BRAND = 0xFF10263A.toInt()
-    const val BRAND_DARK = 0xFF0A1A29.toInt()
-    const val BRAND_LIGHT = 0xFFEAF0F6.toInt()
+    const val BRAND = 0xFF6B3FA0.toInt()
+    const val BRAND_DARK = 0xFF4E2C78.toInt()
+    const val BRAND_LIGHT = 0xFFF1EBF8.toInt()
     const val SUN = 0xFFF5A524.toInt()
     const val SUN_LIGHT = 0xFFFFF4DE.toInt()
     const val SUN_TEXT = 0xFF8A4500.toInt()
-    const val BG = 0xFFF3F6F9.toInt()
-    const val TEXT = 0xFF10263A.toInt()
-    const val MUTED = 0xFF4B5B6B.toInt()
-    const val LINE = 0xFFDCE3EA.toInt()
+    const val BG = 0xFFF6F4F9.toInt()
+    const val TEXT = 0xFF221A30.toInt()
+    const val MUTED = 0xFF5A5168.toInt()
+    const val LINE = 0xFFE4DEEC.toInt()
     const val DANGER = 0xFFB42318.toInt()
     const val DANGER_LIGHT = 0xFFFDECEA.toInt()
     const val GREEN = 0xFF1B7F4C.toInt()
     const val GREEN_LIGHT = 0xFFE6F4EC.toInt()
     const val TEAL = 0xFF0F766E.toInt()
-    const val PURPLE = 0xFF6B3FA0.toInt()
+    const val PURPLE = 0xFF9B2C7E.toInt()
     const val BLUE = 0xFF2B5C8A.toInt()
 
     /** Colour per tier: Saathi = green, Smart = blue, Executive = gold. */
@@ -141,9 +141,9 @@ fun Context.input(hint: String, type: Int = InputType.TYPE_CLASS_TEXT, value: St
         inputType = type
         setText(value)
         setTextColor(Ui.TEXT)
-        setHintTextColor(0xFF8A99A8.toInt())
+        setHintTextColor(0xFF9488A6.toInt())
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-        background = rounded(Color.WHITE, dpf(12f), 0xFFB9C5D0.toInt(), dp(1))
+        background = rounded(Color.WHITE, dpf(12f), 0xFFC8BDD8.toInt(), dp(1))
         setPadding(dp(14), dp(12), dp(14), dp(12))
         if (maxLen > 0) filters = arrayOf(InputFilter.LengthFilter(maxLen))
     }

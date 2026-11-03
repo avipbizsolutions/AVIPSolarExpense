@@ -133,7 +133,7 @@ class AdvancesActivity : AppCompatActivity() {
         var via = ""
         var date = Fmt.today()
         val who = text(tr("व्यक्ति चुनें", "Choose person"), 16f, Ui.MUTED) {
-            background = rounded(android.graphics.Color.WHITE, dpf(12f), 0xFFB9C5D0.toInt(), dp(1))
+            background = rounded(android.graphics.Color.WHITE, dpf(12f), 0xFFC8BDD8.toInt(), dp(1))
             setPadding(dp(14), dp(12), dp(14), dp(12))
         }
         who.setOnClickListener {
