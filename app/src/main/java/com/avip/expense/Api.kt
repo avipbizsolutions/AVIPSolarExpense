@@ -19,6 +19,10 @@ data class User(
     val canApprove get() = role == Role.APPROVER || role == Role.ADMIN
     val isAccounts get() = role == Role.ACCOUNTS || role == Role.ADMIN
     val seesTeam get() = canApprove || isAccounts
+    val isAdmin get() = role == Role.ADMIN
+
+    /** Managers (Approver) decide claims up to the limit in the sheet; above it only Admin (Atul / Rahul). */
+    fun canDecide(amount: Double, limit: Double) = canApprove && (isAdmin || amount <= limit)
 
     fun toJson(): JSONObject = JSONObject().put("id", id).put("name", name).put("mobile", mobile)
         .put("team", team).put("designation", designation).put("role", role)

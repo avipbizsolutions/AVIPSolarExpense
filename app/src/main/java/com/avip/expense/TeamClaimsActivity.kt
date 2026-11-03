@@ -61,7 +61,7 @@ class TeamClaimsActivity : AppCompatActivity() {
         val me = Session.user(this)
         return Claim.list(Store.load(this, "team")?.optJSONArray("claims")).filter {
             when (mode) {
-                MODE_APPROVE -> it.status == Status.PENDING && it.memberId != me?.id
+                MODE_APPROVE -> it.status == Status.PENDING && it.memberId != me?.id && me?.canDecide(it.amount, Settings.approvalLimit(this)) == true
                 MODE_PAY -> it.status == Status.APPROVED && it.paidBy == "Self"
                 else -> true
             }
@@ -95,7 +95,7 @@ class TeamClaimsActivity : AppCompatActivity() {
                 val me = Session.user(this@TeamClaimsActivity)
                 claims = Claim.list(o.optJSONArray("claims")).filter {
                     when (mode) {
-                        MODE_APPROVE -> it.memberId != me?.id
+                        MODE_APPROVE -> it.memberId != me?.id && me?.canDecide(it.amount, Settings.approvalLimit(this@TeamClaimsActivity)) == true
                         MODE_PAY -> it.paidBy == "Self"
                         else -> true
                     }
@@ -112,6 +112,14 @@ class TeamClaimsActivity : AppCompatActivity() {
     private fun render() {
         body.removeAllViews()
         if (loading) body.addView(updatingBar(), lp())
+        val me = Session.user(this)
+        if (mode == MODE_APPROVE && me != null && !me.isAdmin) {
+            val limit = Settings.approvalLimit(this)
+            val waiting = Claim.list(Store.load(this, "team")?.optJSONArray("claims"))
+                .count { it.status == Status.PENDING && it.memberId != me.id && it.amount > limit }
+            if (waiting > 0) body.addView(note(tr("$waiting claim ${Fmt.rupees(limit)} से ऊपर के हैं — इन्हें सिर्फ Atul या Rahul approve करेंगे।",
+                "$waiting claims are above ${Fmt.rupees(limit)}. Only Atul or Rahul can approve those."), Ui.SUN_LIGHT, Ui.SUN_TEXT), lp().margins(this, b = 10))
+        }
         val people = claims.map { it.member }.filter { it.isNotBlank() }.distinct().sorted()
         if (mode == MODE_ALL) {
             body.addView(chips(listOf(Status.PENDING, Status.APPROVED, Status.REIMBURSED, Status.REJECTED).map { Status.label(it) },

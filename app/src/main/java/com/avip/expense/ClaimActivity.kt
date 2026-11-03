@@ -71,6 +71,11 @@ class ClaimActivity : AppCompatActivity() {
             if (c.site.isNotBlank()) addView(kv("Customer / Site", c.site))
             if (c.district.isNotBlank()) addView(kv(tr("जगह", "Location"), c.district))
             if (c.km > 0) addView(kv("KM", Fmt.km(c.km)))
+            if (c.isFuel && c.odoEnd > 0) {
+                addView(kv(tr("Odometer", "Odometer"), Fmt.km(c.odoStart) + " → " + Fmt.km(c.odoEnd)))
+                val rate = if (c.rate > 0) c.rate else Settings.fuelRate(this@ClaimActivity)
+                addView(kv(tr("हिसाब", "Worked out"), "${Fmt.km(c.km)} km × ₹${Fmt.km(rate)} = ${Fmt.rupees(c.amount)}", bold = true))
+            }
             if (c.submittedOn.isNotBlank()) addView(kv(tr("भेजा", "Sent"), c.submittedOn))
         })
 
@@ -85,12 +90,26 @@ class ClaimActivity : AppCompatActivity() {
             }
         })
 
+        if (c.isFuel && (c.hasOdoStart || c.hasOdoEnd)) body.addView(section(tr("Odometer photos", "Odometer photos")) {
+            for ((which, label, local, has) in listOf(
+                Quad("odoStart", tr("शुरू का Odometer", "Start odometer"), c.localOdoStart, c.hasOdoStart),
+                Quad("odoEnd", tr("आखिर का Odometer", "End odometer"), c.localOdoEnd, c.hasOdoEnd),
+            )) {
+                if (!has) continue
+                addView(text(label, 14f, Ui.MUTED, bold = true), lp().margins(context, t = 8, b = 6))
+                val box = vertical { }
+                addView(box, lp())
+                if (local.isNotBlank() && File(local).exists()) showImage(BitmapFactory.decodeFile(local, BitmapFactory.Options().apply { inSampleSize = 2 }), box)
+                else box.addView(pillButton(tr("$label देखें", "View $label".lowercase().replaceFirstChar { it.uppercase() }), Ui.BRAND_LIGHT, Ui.TEXT, heightDp = 44, iconRes = R.drawable.ic_camera) { loadPhoto(which, box) }, lp())
+            }
+        })
+
         body.addView(section("Bill photo") {
             photoView = vertical { }
             addView(photoView, lp())
             when {
                 c.localPhoto.isNotBlank() && File(c.localPhoto).exists() -> showImage(BitmapFactory.decodeFile(c.localPhoto, BitmapFactory.Options().apply { inSampleSize = 2 }))
-                c.hasPhoto -> photoView?.addView(pillButton(tr("Bill photo देखें", "View bill photo"), Ui.BRAND_LIGHT, Ui.TEXT, heightDp = 46, iconRes = R.drawable.ic_camera) { loadPhoto() }, lp())
+                c.hasPhoto -> photoView?.addView(pillButton(tr("Bill photo देखें", "View bill photo"), Ui.BRAND_LIGHT, Ui.TEXT, heightDp = 46, iconRes = R.drawable.ic_camera) { loadPhoto("bill", photoView!!) }, lp())
                 else -> photoView?.addView(note(tr("इस claim के साथ bill photo नहीं है।", "This claim has no bill photo."), Ui.SUN_LIGHT, Ui.SUN_TEXT))
             }
         })
@@ -105,6 +124,10 @@ class ClaimActivity : AppCompatActivity() {
                     gravity = Gravity.CENTER; setPadding(0, dp(12), 0, dp(4))
                     setOnClickListener { confirm(tr("Claim हटाएँ?", "Delete claim?"), tr("यह claim office नहीं गया है। Phone से हटा दें?", "This claim has not reached the office. Delete it from the phone?")) { Outbox.remove(this@ClaimActivity, c.id); finish() } }
                 }, lp())
+            }
+            c.status == Status.PENDING && u.canApprove && !mine && !u.canDecide(c.amount, Settings.approvalLimit(this)) -> {
+                actions.addView(note(tr("${Fmt.rupees(Settings.approvalLimit(this))} से ऊपर का claim — सिर्फ Atul या Rahul approve कर सकते हैं।",
+                    "Above ${Fmt.rupees(Settings.approvalLimit(this))}: only Atul or Rahul can approve this claim."), Ui.SUN_LIGHT, Ui.SUN_TEXT), lp())
             }
             c.status == Status.PENDING && u.canApprove && !mine -> {
                 actions.addView(horizontal {
@@ -145,15 +168,17 @@ class ClaimActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadPhoto() {
-        busy(tr("Photo आ रही है…", "Loading photo…"), { Api.call(this, "billPhoto", JSONObject().put("claimId", claim.id), timeoutMs = 90000) }) { r ->
+    private fun loadPhoto(which: String, box: LinearLayout) {
+        busy(tr("Photo आ रही है…", "Loading photo…"), { Api.call(this, "billPhoto", JSONObject().put("claimId", claim.id).put("which", which), timeoutMs = 90000) }) { r ->
             val bytes = Base64.decode(r.optString("data"), Base64.DEFAULT)
-            showImage(BitmapFactory.decodeByteArray(bytes, 0, bytes.size))
+            showImage(BitmapFactory.decodeByteArray(bytes, 0, bytes.size), box)
         }
     }
 
-    private fun showImage(bmp: android.graphics.Bitmap?) {
-        val box = photoView ?: return
+    private data class Quad(val which: String, val label: String, val local: String, val has: Boolean)
+
+    private fun showImage(bmp: android.graphics.Bitmap?, target: LinearLayout? = photoView) {
+        val box = target ?: return
         box.removeAllViews()
         if (bmp == null) { box.addView(note(tr("Photo नहीं खुल सकी।", "Could not open the photo."))); return }
         box.addView(ImageView(this).apply {

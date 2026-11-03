@@ -49,7 +49,12 @@ data class Claim(
     val remarks: String, val reimbursedOn: String, val reimbursedVia: String, val paymentRef: String,
     val submittedOn: String, val member: String = "", val memberId: String = "", val team: String = "",
     val localPhoto: String = "",
+    val odoStart: Double = 0.0, val odoEnd: Double = 0.0, val rate: Double = 0.0,
+    val hasOdoStart: Boolean = false, val hasOdoEnd: Boolean = false,
+    val localOdoStart: String = "", val localOdoEnd: String = "",
 ) {
+    val isFuel get() = Settings.isFuel(category)
+
     companion object {
         fun from(o: JSONObject) = Claim(
             o.optString("id"), o.optString("date"), o.optString("billNo"), o.optString("category"),
@@ -59,6 +64,9 @@ data class Claim(
             o.optString("reimbursedOn"), o.optString("reimbursedVia"), o.optString("paymentRef"),
             o.optString("submittedOn"), o.optString("member"), o.optString("memberId"), o.optString("team"),
             o.optString("localPhoto"),
+            o.optDouble("odoStart", 0.0), o.optDouble("odoEnd", 0.0), o.optDouble("rate", 0.0),
+            o.optBoolean("hasOdoStart"), o.optBoolean("hasOdoEnd"),
+            o.optString("localOdoStart"), o.optString("localOdoEnd"),
         )
 
         fun list(a: JSONArray?): List<Claim> = (0 until (a?.length() ?: 0)).map { from(a!!.getJSONObject(it)) }
@@ -90,6 +98,18 @@ data class Balance(
             o?.optString("name") ?: "", o?.optString("id") ?: "", o?.optString("team") ?: "",
         )
     }
+}
+
+/** Numbers the office keeps in the "Settings" tab of the expense sheet. */
+object Settings {
+    const val DEFAULT_FUEL_RATE = 3.5
+    const val DEFAULT_APPROVAL_LIMIT = 1000.0
+
+    fun isFuel(category: String) = category.contains("fuel", true) || category.contains("petrol", true)
+
+    private fun of(c: Context) = Store.load(c, "boot")?.optJSONObject("settings")
+    fun fuelRate(c: Context) = of(c)?.optDouble("fuelRate", DEFAULT_FUEL_RATE)?.takeIf { it > 0 } ?: DEFAULT_FUEL_RATE
+    fun approvalLimit(c: Context) = of(c)?.optDouble("approvalLimit", DEFAULT_APPROVAL_LIMIT)?.takeIf { it > 0 } ?: DEFAULT_APPROVAL_LIMIT
 }
 
 /** Lists and totals from the last "bootstrap", kept so the app opens without signal. */
@@ -226,8 +246,9 @@ object Outbox {
             .sortedBy { it.optString("savedAt") }
     }
 
-    fun add(c: Context, claim: JSONObject, photoPath: String) {
+    fun add(c: Context, claim: JSONObject, photoPath: String, odoStart: String = "", odoEnd: String = "") {
         val o = JSONObject().put("claim", claim).put("photo", photoPath).put("savedAt", System.currentTimeMillis().toString())
+            .put("odoStartPhoto", odoStart).put("odoEndPhoto", odoEnd)
             .put("owner", Session.user(c)?.id ?: "")
         c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(claim.getString("id"), o.toString()).commit()
     }
@@ -240,7 +261,9 @@ object Outbox {
     fun asClaims(c: Context): List<Claim> = all(c).map { o ->
         val cl = o.getJSONObject("claim")
         Claim.from(JSONObject(cl.toString()).put("status", Status.QUEUED).put("hasPhoto", o.optString("photo").isNotBlank())
-            .put("localPhoto", o.optString("photo")))
+            .put("localPhoto", o.optString("photo"))
+            .put("localOdoStart", o.optString("odoStartPhoto")).put("localOdoEnd", o.optString("odoEndPhoto"))
+            .put("hasOdoStart", o.optString("odoStartPhoto").isNotBlank()).put("hasOdoEnd", o.optString("odoEndPhoto").isNotBlank()))
     }
 
     /** Sends one claim now. Throws when it could not be sent. */
@@ -252,6 +275,12 @@ object Outbox {
         if (photo.isNotBlank()) {
             val data = Photos.base64(photo)
             if (data != null) body.put("photo", JSONObject().put("mime", "image/jpeg").put("data", data))
+        }
+        for ((key, field) in listOf("odoStartPhoto" to "odoStartPhoto", "odoEndPhoto" to "odoEndPhoto")) {
+            val p = o.optString(key)
+            if (p.isBlank()) continue
+            val data = Photos.base64(p) ?: throw ApiException("Odometer photo is missing on this phone. Delete this claim and add it again.")
+            body.put(field, JSONObject().put("mime", "image/jpeg").put("data", data))
         }
         val res = Api.call(c, "submitClaim", body, timeoutMs = 120000)
         remove(c, id)

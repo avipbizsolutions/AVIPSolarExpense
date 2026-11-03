@@ -16,7 +16,8 @@
  *
  * Roles (Expense App Role in the Team Directory):
  *   Member   – submit and see own claims, see own advances and balance
- *   Approver – also approve / reject claims of others
+ *   Approver – also approve / reject claims of others, up to the "Manager approval limit"
+ *              in the Settings tab (above it only Admin – Atul / Rahul – can decide)
  *   Accounts – also record advances and mark approved claims as paid
  *   Admin    – everything
  */
@@ -31,6 +32,33 @@ const PAY_VIA = ['Cash', 'UPI', 'Bank Transfer'];
 const PAID_BY = ['Self', 'Advance', 'Company'];
 const ST = { PENDING: 'Pending', APPROVED: 'Approved', REJECTED: 'Rejected', REIMBURSED: 'Reimbursed' };
 const MAX_PHOTO_BYTES = 6 * 1024 * 1024;
+const SETTINGS = 'Settings';
+const DEFAULT_FUEL_RATE = 3.5;     // ₹ per km, bike
+const DEFAULT_APPROVAL_LIMIT = 1000;
+const MAX_TRIP_KM = 1500;
+
+/** Fuel / Petrol claims: amount comes from odometer photos × rate. */
+function isFuel(category) { return /fuel|petrol/i.test(clean(category)); }
+
+/** Numbers from the Settings tab (column A = name, B = value), with safe defaults. */
+function settings() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('settings');
+  if (hit) return JSON.parse(hit);
+  const res = { fuelRate: DEFAULT_FUEL_RATE, approvalLimit: DEFAULT_APPROVAL_LIMIT };
+  const sh = book().getSheetByName(SETTINGS);
+  if (sh && sh.getLastRow() > 1) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(function (r) {
+      const k = clean(r[0]).toLowerCase();
+      const v = Number(r[1]);
+      if (!isFinite(v) || v <= 0) return;
+      if (k.indexOf('fuel') >= 0 || k.indexOf('petrol') >= 0) res.fuelRate = v;
+      else if (k.indexOf('approval') >= 0 || k.indexOf('limit') >= 0) res.approvalLimit = v;
+    });
+  }
+  cache.put('settings', JSON.stringify(res), 120);
+  return res;
+}
 
 // ------------------------------------------------------------------ web app
 
@@ -169,6 +197,12 @@ function role(u) { return clean(u.role); }
 function canApprove(u) { return ['Approver', 'Admin'].indexOf(role(u)) >= 0; }
 function isAccounts(u) { return ['Accounts', 'Admin'].indexOf(role(u)) >= 0; }
 function seesAll(u) { return canApprove(u) || isAccounts(u); }
+function isAdmin(u) { return role(u) === 'Admin'; }
+/** Managers (Approver) decide claims up to the limit; above it only Admin (Atul / Rahul). */
+function canDecide(u, c, limit) {
+  if (!canApprove(u)) return false;
+  return isAdmin(u) || money(c['Amount (₹)']) <= limit;
+}
 
 function sameName(a, b) { return clean(a).toLowerCase() === clean(b).toLowerCase(); }
 
@@ -204,6 +238,7 @@ function listColumn(col) {
 // ------------------------------------------------------------------ claims
 
 function claimOut(c, withMember) {
+  const lim = settings().approvalLimit;
   const o = {
     id: clean(c['Claim ID']), date: isoDay(c['Date']), billNo: clean(c['Bill / Voucher No.']),
     category: clean(c['Category']), description: clean(c['Description / Purpose']),
@@ -213,6 +248,9 @@ function claimOut(c, withMember) {
     status: clean(c['Status']) || ST.PENDING, approvedBy: clean(c['Approved By']), approvedOn: iso(c['Approved On']),
     remarks: clean(c['Remarks']), reimbursedOn: isoDay(c['Reimbursed On']), reimbursedVia: clean(c['Reimbursed Via']),
     paymentRef: clean(c['Payment Reference']), submittedOn: iso(c['Submitted On']),
+    odoStart: num(c['Odometer Start']), odoEnd: num(c['Odometer End']), rate: num(c['Rate per KM (₹)']),
+    hasOdoStart: clean(c['Start Odometer Photo']) !== '', hasOdoEnd: clean(c['End Odometer Photo']) !== '',
+    adminOnly: money(c['Amount (₹)']) > lim,
   };
   if (withMember) { o.member = clean(c['Team Member']); o.memberId = clean(c['Employee ID']); o.team = clean(c['Team']); }
   return o;
@@ -271,10 +309,14 @@ function bootstrap(d) {
     paidBy: PAID_BY,
     payVia: PAY_VIA,
     balance: balanceFor(u.name, u.id, claims, advs),
+    settings: settings(),
     counts: {},
   };
   if (canApprove(u)) {
-    res.counts.toApprove = claims.filter(function (c) { return (clean(c['Status']) || ST.PENDING) === ST.PENDING && !owns(u, c); }).length;
+    const lim = res.settings.approvalLimit;
+    const pending = claims.filter(function (c) { return (clean(c['Status']) || ST.PENDING) === ST.PENDING && !owns(u, c); });
+    res.counts.toApprove = pending.filter(function (c) { return canDecide(u, c, lim); }).length;
+    res.counts.forAdmin = pending.length - res.counts.toApprove;
   }
   if (isAccounts(u)) {
     res.counts.toPay = claims.filter(function (c) { return clean(c['Status']) === ST.APPROVED && clean(c['Paid By']) === 'Self'; }).length;
@@ -310,10 +352,22 @@ function submitClaim(d) {
   const c = d.claim || {};
   const id = clean(c.id);
   if (!/^CLM-[A-Z0-9-]{6,40}$/.test(id)) throw new Error('Claim number is not valid. Update the app.');
-  const amount = money(c.amount);
-  if (!(amount > 0) || amount > 500000) throw new Error('Enter the amount in rupees.');
   const category = clean(c.category, 60);
   if (listColumn(4).indexOf(category) < 0) throw new Error('Choose a category from the list.');
+  const fuel = isFuel(category);
+  let amount = money(c.amount);
+  let odoStart = 0, odoEnd = 0, km = num(c.km), rate = 0;
+  if (fuel) {
+    odoStart = Math.round(num(c.odoStart) * 10) / 10;
+    odoEnd = Math.round(num(c.odoEnd) * 10) / 10;
+    if (!(odoStart > 0) || !(odoEnd > 0)) throw new Error('Fuel claim: enter the start and end odometer readings.');
+    if (odoEnd <= odoStart) throw new Error('Fuel claim: end odometer reading must be more than the start reading.');
+    km = Math.round((odoEnd - odoStart) * 10) / 10;
+    if (km > MAX_TRIP_KM) throw new Error('Fuel claim: ' + km + ' km looks wrong. Check the odometer readings.');
+    rate = settings().fuelRate;
+    amount = money(km * rate);
+  }
+  if (!(amount > 0) || amount > 500000) throw new Error('Enter the amount in rupees.');
   const paidBy = clean(c.paidBy);
   if (PAID_BY.indexOf(paidBy) < 0) throw new Error('Choose who paid: Self, Advance or Company.');
   const description = clean(c.description, 300);
@@ -326,9 +380,14 @@ function submitClaim(d) {
     if (existing) {
       if (!owns(u, existing)) throw new Error('Claim number already used.');
       if (d.photo && !clean(existing['Bill Photo Link'])) setFields(LOG, existing._row, { 'Bill Photo Link': saveBill(id, u, d.photo) });
+      if (d.odoStartPhoto && !clean(existing['Start Odometer Photo'])) setFields(LOG, existing._row, { 'Start Odometer Photo': saveBill(id, u, d.odoStartPhoto, 'start odometer') });
+      if (d.odoEndPhoto && !clean(existing['End Odometer Photo'])) setFields(LOG, existing._row, { 'End Odometer Photo': saveBill(id, u, d.odoEndPhoto, 'end odometer') });
       return { claim: claimOut(rows(LOG).filter(function (r) { return clean(r['Claim ID']) === id; })[0], false), duplicate: true };
     }
+    if (fuel && (!d.odoStartPhoto || !d.odoEndPhoto)) throw new Error('Fuel claim: add photos of the start and end odometer.');
     const link = d.photo ? saveBill(id, u, d.photo) : '';
+    const startLink = fuel ? saveBill(id, u, d.odoStartPhoto, 'start odometer') : '';
+    const endLink = fuel ? saveBill(id, u, d.odoEndPhoto, 'end odometer') : '';
     const row = append(LOG, {
       'Date': toDate(c.date),
       'Bill / Voucher No.': "'" + clean(c.billNo, 40),
@@ -337,7 +396,7 @@ function submitClaim(d) {
       'Description / Purpose': description,
       'Customer / Site': clean(c.site, 100),
       'District / Location': clean(c.district, 80),
-      'KM Travelled': num(c.km) > 0 ? Math.round(num(c.km)) : '',
+      'KM Travelled': km > 0 ? (fuel ? km : Math.round(km)) : '',
       'Amount (₹)': amount,
       'Payment Mode': clean(c.paymentMode, 30),
       'Paid By': paidBy,
@@ -346,6 +405,11 @@ function submitClaim(d) {
       'Claim ID': id,
       'Submitted On': now(),
       'Employee ID': u.id,
+      'Odometer Start': fuel ? odoStart : '',
+      'Odometer End': fuel ? odoEnd : '',
+      'Start Odometer Photo': startLink,
+      'End Odometer Photo': endLink,
+      'Rate per KM (₹)': fuel ? rate : '',
     });
     SpreadsheetApp.flush();
     const saved = rows(LOG).filter(function (r) { return r._row === row; })[0];
@@ -355,7 +419,7 @@ function submitClaim(d) {
   }
 }
 
-function saveBill(claimId, u, photo) {
+function saveBill(claimId, u, photo, what) {
   const data = clean(photo.data);
   if (!data) return '';
   const bytes = Utilities.base64Decode(data);
@@ -363,7 +427,7 @@ function saveBill(claimId, u, photo) {
   const mime = /^image\/(jpeg|png|webp)$/.test(clean(photo.mime)) ? clean(photo.mime) : 'image/jpeg';
   const ext = mime === 'image/png' ? '.png' : mime === 'image/webp' ? '.webp' : '.jpg';
   const folder = monthFolder();
-  const name = claimId + ' - ' + u.name + ext;
+  const name = claimId + ' - ' + u.name + (what ? ' - ' + what : '') + ext;
   const f = folder.createFile(Utilities.newBlob(bytes, mime, name));
   return f.getUrl();
 }
@@ -385,8 +449,9 @@ function billPhoto(d) {
   const u = me(d);
   const c = findClaim(d.claimId);
   if (!owns(u, c) && !seesAll(u)) throw new Error('This is not your claim.');
-  const id = fileIdFromUrl(c['Bill Photo Link']);
-  if (!id) throw new Error('No bill photo for this claim.');
+  const col = d.which === 'odoStart' ? 'Start Odometer Photo' : d.which === 'odoEnd' ? 'End Odometer Photo' : 'Bill Photo Link';
+  const id = fileIdFromUrl(c[col]);
+  if (!id) throw new Error('No such photo for this claim.');
   const blob = DriveApp.getFileById(id).getBlob();
   return { mime: blob.getContentType(), data: Utilities.base64Encode(blob.getBytes()) };
 }
@@ -399,8 +464,10 @@ function deleteClaim(d) {
     const c = findClaim(d.claimId);
     if (!owns(u, c)) throw new Error('This is not your claim.');
     if ((clean(c['Status']) || ST.PENDING) !== ST.PENDING) throw new Error('Only a pending claim can be deleted.');
-    const fid = fileIdFromUrl(c['Bill Photo Link']);
-    if (fid) { try { DriveApp.getFileById(fid).setTrashed(true); } catch (_) {} }
+    ['Bill Photo Link', 'Start Odometer Photo', 'End Odometer Photo'].forEach(function (k) {
+      const fid = fileIdFromUrl(c[k]);
+      if (fid) { try { DriveApp.getFileById(fid).setTrashed(true); } catch (_) {} }
+    });
     table(LOG).sh.deleteRow(c._row);
     return {};
   } finally {
@@ -429,12 +496,14 @@ function decide(d) {
   lock.waitLock(30000);
   try {
     const all = rows(LOG);
+    const lim = settings().approvalLimit;
     let done = 0;
     const skipped = [];
     ids.forEach(function (id) {
       const c = all.filter(function (r) { return clean(r['Claim ID']) === clean(id); })[0];
       if (!c) { skipped.push(id + ': not found'); return; }
       if (owns(u, c)) { skipped.push(id + ': you cannot approve your own claim'); return; }
+      if (!canDecide(u, c, lim)) { skipped.push(id + ': above ₹' + lim + ', only Atul or Rahul can approve'); return; }
       if ((clean(c['Status']) || ST.PENDING) !== ST.PENDING) { skipped.push(id + ': already ' + clean(c['Status'])); return; }
       setFields(LOG, c._row, {
         'Status': approve ? ST.APPROVED : ST.REJECTED,
