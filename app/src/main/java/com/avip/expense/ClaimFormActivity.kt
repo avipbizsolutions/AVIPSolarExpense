@@ -68,6 +68,8 @@ class ClaimFormActivity : AppCompatActivity() {
 
     private var claimId = ""
     private var journey: JSONObject? = null
+    /** Opened from "Start journey" (or one of its drafts): odometer photos only from the GPS camera. */
+    private var journeyMode = false
     private lateinit var draftBtn: View
     private lateinit var dateNote: android.widget.TextView
 
@@ -96,6 +98,7 @@ class ClaimFormActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         Lang.load(this)
         val jx = intent.getStringExtra(EXTRA_JOURNEY)
+        journeyMode = jx != null
         journey = if (jx != null && jx != "new") Journeys.get(this, jx) else null
         claimId = journey?.optString("id")?.takeIf { it.isNotBlank() } ?: newClaimId()
         val boot = Store.load(this, "boot")
@@ -304,12 +307,13 @@ class ClaimFormActivity : AppCompatActivity() {
                     .putExtra(CameraActivity.EXTRA_TITLE, title)
                     .putExtra(CameraActivity.EXTRA_SUBTITLE, tr("Odometer साफ दिखे", "Keep the odometer clear in view"))
                     .putExtra(CameraActivity.EXTRA_PREFIX, claimId + "_odo_" + o.key))
-            }, lp(0, WRAP, 1f).margins(context, r = 8))
-            addView(pillButton("Gallery", Ui.BRAND_LIGHT, Ui.TEXT, iconRes = R.drawable.ic_grid, heightDp = 44) {
+            }, lp(0, WRAP, 1f).margins(context, r = if (journeyMode) 0 else 8))
+            if (!journeyMode) addView(pillButton("Gallery", Ui.BRAND_LIGHT, Ui.TEXT, iconRes = R.drawable.ic_grid, heightDp = 44) {
                 odoTarget = o
                 gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             }, lp(0, WRAP, 1f))
         }, lp().margins(this, t = 6))
+        if (journeyMode) parent.addView(text(tr("Journey में odometer की photo सिर्फ GPS Camera से।", "On a journey, odometer photos come only from the GPS camera."), 12f, Ui.MUTED), lp().margins(this, t = 4))
         o.reading = field(parent, tr("Reading (photo से)", "Reading (from the photo)"), "", tr("जैसे 12540", "e.g. 12540"),
             InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL, R.drawable.ic_edit, 8) { updateFuel() }
         o.hint = text("", 12.5f, Ui.MUTED) { visibility = View.GONE }
