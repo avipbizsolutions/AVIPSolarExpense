@@ -74,6 +74,9 @@ class ClaimActivity : AppCompatActivity() {
             if (c.isFuel && c.odoEnd > 0) {
                 addView(kv(tr("Odometer", "Odometer"), Fmt.km(c.odoStart) + " → " + Fmt.km(c.odoEnd)))
                 val rate = if (c.rate > 0) c.rate else Settings.fuelRate(this@ClaimActivity)
+                if (c.odoStartTime.isNotBlank() || c.odoEndTime.isNotBlank())
+                    addView(kv(tr("Photo का समय", "Photo times"), c.odoStartTime.ifBlank { "?" } + " → " + c.odoEndTime.ifBlank { "?" }))
+                if (c.odoDatesDiffer) addView(text(tr("⚠ Photos अलग-अलग तारीख की (या तारीख नहीं) — Management approval", "⚠ Photos on different dates (or no date): management approval"), 13f, Ui.DANGER, bold = true), lp().margins(context, t = 4))
                 addView(kv(tr("हिसाब", "Worked out"), "${Fmt.km(c.km)} km × ₹${Fmt.km(rate)} = ${Fmt.rupees(c.amount)}", bold = true))
             }
             if (c.submittedOn.isNotBlank()) addView(kv(tr("भेजा", "Sent"), c.submittedOn))
@@ -127,7 +130,8 @@ class ClaimActivity : AppCompatActivity() {
             }
             c.status == Status.PENDING && u.canApprove && !mine && !u.canDecide(c, Settings.approvalLimit(this)) -> {
                 val limit = Settings.approvalLimit(this)
-                actions.addView(note(if (c.amount > limit) tr("${Fmt.rupees(limit)} से ऊपर का claim — सिर्फ Atul या Rahul approve कर सकते हैं।",
+                actions.addView(note(if (c.odoDatesDiffer && c.amount <= limit) tr("Odometer की photos अलग-अलग तारीख की हैं — सिर्फ Atul या Rahul approve कर सकते हैं।",
+                    "The odometer photos are on different dates: only Atul or Rahul can approve this claim.") else if (c.amount > limit) tr("${Fmt.rupees(limit)} से ऊपर का claim — सिर्फ Atul या Rahul approve कर सकते हैं।",
                     "Above ${Fmt.rupees(limit)}: only Atul or Rahul can approve this claim.")
                     else tr("Manager का claim — सिर्फ Atul या Rahul approve कर सकते हैं।", "Claim of a manager: only Atul or Rahul can approve it."), Ui.SUN_LIGHT, Ui.SUN_TEXT), lp())
             }

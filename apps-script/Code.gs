@@ -20,6 +20,8 @@
  *              in the Settings tab (above it only Admin – Atul / Rahul – can decide)
  * Claims of Approvers (managers) and Admins are decided only by an Admin (Atul / Rahul),
  * whatever the amount; nobody decides their own claim.
+ * Fuel claims whose start and end odometer photos are on different dates (or have no date)
+ * are also decided only by an Admin.
  *   Accounts – also record advances and mark approved claims as paid
  *   Admin    – everything
  */
@@ -210,10 +212,22 @@ function ownerRole(c) {
   const id = clean(c['Employee ID']);
   return clean(id ? ROLE_BY_ID_[id] : ROLE_BY_ID_['name:' + clean(c['Team Member']).toLowerCase()]);
 }
-/** Only Atul / Rahul (Admin): claims above the limit, and every claim of a manager or admin. */
-function needsAdmin(c, limit) {
-  return money(c['Amount (₹)']) > limit || ['Approver', 'Admin'].indexOf(ownerRole(c)) >= 0;
+/** Fuel claim whose odometer photos are not both from the same day (or have no date). */
+function odoDatesDiffer(c) {
+  if (!isFuel(c['Category']) || !clean(c['Start Odometer Photo'])) return false;
+  const a = c['Start Photo Time'], b = c['End Photo Time'];
+  if (!(a instanceof Date) || !(b instanceof Date)) return true;
+  return Utilities.formatDate(a, TZ, 'yyyy-MM-dd') !== Utilities.formatDate(b, TZ, 'yyyy-MM-dd');
 }
+/** Why only Atul / Rahul can decide this claim, or '' when a manager can. */
+function adminReason(c, limit) {
+  if (money(c['Amount (₹)']) > limit) return 'above ₹' + limit;
+  if (['Approver', 'Admin'].indexOf(ownerRole(c)) >= 0) return 'claim of a manager';
+  if (odoDatesDiffer(c)) return 'odometer photos on different dates';
+  return '';
+}
+/** Only Atul / Rahul (Admin): above the limit, claims of managers, fuel claims with photos on different dates. */
+function needsAdmin(c, limit) { return adminReason(c, limit) !== ''; }
 function canDecide(u, c, limit) {
   if (!canApprove(u)) return false;
   return isAdmin(u) || !needsAdmin(c, limit);
@@ -265,7 +279,8 @@ function claimOut(c, withMember) {
     paymentRef: clean(c['Payment Reference']), submittedOn: iso(c['Submitted On']),
     odoStart: num(c['Odometer Start']), odoEnd: num(c['Odometer End']), rate: num(c['Rate per KM (₹)']),
     hasOdoStart: clean(c['Start Odometer Photo']) !== '', hasOdoEnd: clean(c['End Odometer Photo']) !== '',
-    adminOnly: needsAdmin(c, lim),
+    adminOnly: needsAdmin(c, lim), adminReason: adminReason(c, lim), odoDatesDiffer: odoDatesDiffer(c),
+    odoStartTime: iso(c['Start Photo Time']), odoEndTime: iso(c['End Photo Time']),
   };
   if (withMember) { o.member = clean(c['Team Member']); o.memberId = clean(c['Employee ID']); o.team = clean(c['Team']); }
   return o;
@@ -425,6 +440,8 @@ function submitClaim(d) {
       'Start Odometer Photo': startLink,
       'End Odometer Photo': endLink,
       'Rate per KM (₹)': fuel ? rate : '',
+      'Start Photo Time': fuel ? photoTime(c.odoStartTime) : '',
+      'End Photo Time': fuel ? photoTime(c.odoEndTime) : '',
     });
     SpreadsheetApp.flush();
     const saved = rows(LOG).filter(function (r) { return r._row === row; })[0];
@@ -432,6 +449,15 @@ function submitClaim(d) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/** Time a photo was taken (milliseconds from the phone), or '' when unknown / not believable. */
+function photoTime(ms) {
+  const n = num(ms);
+  if (!(n > 0)) return '';
+  const t = new Date(n);
+  if (n > Date.now() + 3600000 || n < Date.now() - 400 * 86400000) return '';
+  return t;
 }
 
 function saveBill(claimId, u, photo, what) {
@@ -519,7 +545,7 @@ function decide(d) {
       if (!c) { skipped.push(id + ': not found'); return; }
       if (owns(u, c)) { skipped.push(id + ': you cannot approve your own claim'); return; }
       if (!canDecide(u, c, lim)) {
-        skipped.push(id + ': ' + (money(c['Amount (₹)']) > lim ? 'above ₹' + lim : 'claim of a manager') + ', only Atul or Rahul can approve');
+        skipped.push(id + ': ' + adminReason(c, lim) + ', only Atul or Rahul can approve');
         return;
       }
       if ((clean(c['Status']) || ST.PENDING) !== ST.PENDING) { skipped.push(id + ': already ' + clean(c['Status'])); return; }

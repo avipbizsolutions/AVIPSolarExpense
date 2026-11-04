@@ -25,6 +25,11 @@ import java.util.Locale
  */
 class ClaimFormActivity : AppCompatActivity() {
 
+    companion object {
+        /** "new" = start a bike journey; otherwise the id of a journey draft to finish. */
+        const val EXTRA_JOURNEY = "journey"
+    }
+
     private var date = Fmt.today()
     private var category = ""
     private var paidBy = "Self"
@@ -34,6 +39,7 @@ class ClaimFormActivity : AppCompatActivity() {
     /** Fuel / Petrol: start and end odometer photo + reading. */
     private inner class Odo(val key: String, val title: String) {
         var photo = ""
+        var time: Long? = null
         var auto: Long? = null
         lateinit var box: LinearLayout
         lateinit var reading: EditText
@@ -60,16 +66,21 @@ class ClaimFormActivity : AppCompatActivity() {
     private lateinit var advanceNote: android.widget.TextView
     private lateinit var photoBox: LinearLayout
 
-    private val claimId by lazy {
+    private var claimId = ""
+    private var journey: JSONObject? = null
+    private lateinit var draftBtn: View
+    private lateinit var dateNote: android.widget.TextView
+
+    private fun newClaimId(): String {
         val u = Session.user(this)
-        "CLM-" + SimpleDateFormat("yyMMddHHmmss", Locale.US).format(Date()) + "-" +
+        return "CLM-" + SimpleDateFormat("yyMMddHHmmss", Locale.US).format(Date()) + "-" +
             (u?.id ?: "X").uppercase().replace(Regex("[^A-Z0-9]"), "")
     }
 
     private val camera = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val f = r.data?.getStringArrayListExtra(CameraActivity.EXTRA_FILES).orEmpty().lastOrNull()
         val odo = odoTarget
-        if (f != null) { if (odo != null) setOdoPhoto(odo, f) else { photo = f; showPhoto() } }
+        if (f != null) { if (odo != null) setOdoPhoto(odo, f, File(f).lastModified()) else { photo = f; showPhoto() } }
     }
 
     private val gallery = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -77,13 +88,16 @@ class ClaimFormActivity : AppCompatActivity() {
         if (uri != null) {
             val f = Photos.importUri(this, uri, claimId + (odo?.let { "_odo_" + it.key } ?: "_g") + System.currentTimeMillis() % 100000)
             if (f == null) toast(tr("यह photo नहीं खुल सकी", "Could not open this photo"))
-            else if (odo != null) setOdoPhoto(odo, f.absolutePath) else { photo = f.absolutePath; showPhoto() }
+            else if (odo != null) setOdoPhoto(odo, f.absolutePath, Photos.takenAt(this, uri)) else { photo = f.absolutePath; showPhoto() }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Lang.load(this)
+        val jx = intent.getStringExtra(EXTRA_JOURNEY)
+        journey = if (jx != null && jx != "new") Journeys.get(this, jx) else null
+        claimId = journey?.optString("id")?.takeIf { it.isNotBlank() } ?: newClaimId()
         val boot = Store.load(this, "boot")
         val categories = Store.strings(boot, "categories", Store.DEFAULT_CATEGORIES)
         val modes = Store.strings(boot, "paymentModes", Store.DEFAULT_MODES)
@@ -133,11 +147,16 @@ class ClaimFormActivity : AppCompatActivity() {
                "Take a GPS photo of the odometer before you start and when you are back. KM and amount are worked out automatically at ₹${Fmt.km(fuelRate)} per km.")) {
             odoSlot(this, odoStart, tr("शुरू का Odometer", "Start odometer"))
             odoSlot(this, odoEnd, tr("आखिर का Odometer", "End odometer"))
+            dateNote = text("", 13f, Ui.SUN_TEXT) { visibility = View.GONE }
+            addView(dateNote, lp().margins(context, t = 10))
             fuelSum = text("", 17f, Ui.TEXT, bold = true) {
                 background = rounded(Ui.BRAND_LIGHT, dpf(12f))
                 setPadding(dp(14), dp(12), dp(14), dp(12))
             }
             addView(fuelSum, lp().margins(context, t = 14))
+            draftBtn = pillButton(tr("Journey शुरू — Draft save करें", "Journey started: save as draft"), Ui.BRAND, iconRes = R.drawable.ic_history, heightDp = 48) { saveDraft() }
+            addView(draftBtn, lp().margins(context, t = 12))
+            addView(text(tr("लौटने पर Home पर यह Draft खोलें, आखिर के odometer की photo लगाएँ और Claim भेजें।", "When you are back, open this draft on the home screen, add the end odometer photo and send the claim."), 12.5f, Ui.MUTED), lp().margins(context, t = 6))
         }.apply { visibility = View.GONE }
         body.addView(fuelBox)
 
@@ -170,6 +189,41 @@ class ClaimFormActivity : AppCompatActivity() {
             district = field(this, tr("District / जगह", "District / location"), "", tr("जैसे: Danapur, Patna", "e.g. Danapur, Patna"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS, R.drawable.ic_location, 80) {}
         })
         showPhoto()
+
+        // bike journey: Fuel / Petrol straight away, and a draft to continue
+        if (jx != null) {
+            val fuelCat = categories.firstOrNull { Settings.isFuel(it) } ?: "Fuel / Petrol"
+            category = fuelCat; catBtn.text = fuelCat; catBtn.setTextColor(Ui.TEXT)
+            kmBox.visibility = View.GONE; fuelBox.visibility = View.VISIBLE; amountBox.visibility = View.GONE
+        }
+        journey?.let { j ->
+            date = j.optString("date").ifBlank { date }; dateBtn.text = Fmt.date(date)
+            desc.setText(j.optString("description")); site.setText(j.optString("site")); district.setText(j.optString("district"))
+            odoStart.photo = j.optString("startPhoto")
+            odoStart.time = j.optLong("startTime", 0L).takeIf { it > 0 }
+            odoStart.reading.setText(j.optString("startReading"))
+            showOdo(odoStart)
+        }
+        updateFuel()
+    }
+
+    /** Saves the journey so far (start photo and reading) on the phone, as a draft. */
+    private fun saveDraft() {
+        if (odoStart.photo.isBlank()) { toast(tr("पहले शुरू के odometer की photo लें", "Take the start odometer photo first")); return }
+        if (odoValue(odoStart) <= 0) { odoStart.reading.error = tr("Reading डालें", "Enter the reading"); return }
+        val j = (journey ?: JSONObject()).put("id", claimId).put("date", date)
+            .put("startPhoto", odoStart.photo).put("startTime", odoStart.time ?: 0L).put("startReading", odoStart.reading.text.toString().trim())
+            .put("description", desc.text.toString().trim()).put("site", site.text.toString().trim()).put("district", district.text.toString().trim())
+            .put("savedAt", System.currentTimeMillis())
+        Journeys.save(this, j)
+        toast(tr("Journey draft save हो गया। लौटने पर Home से खोलें।", "Journey saved as a draft. Open it from the home screen when you are back."))
+        finish()
+    }
+
+    private fun sameDay(a: Long?, b: Long?): Boolean? {
+        if (a == null || b == null) return null
+        val f = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        return f.format(Date(a)) == f.format(Date(b))
     }
 
     private fun needsKm(cat: String) = cat.contains("Fuel", true) || cat.contains("Travel", true) || cat.contains("Vehicle", true)
@@ -263,8 +317,12 @@ class ClaimFormActivity : AppCompatActivity() {
         showOdo(o)
     }
 
-    private fun setOdoPhoto(o: Odo, path: String) {
+    private fun setOdoPhoto(o: Odo, path: String, takenAt: Long?) {
         o.photo = path
+        o.time = takenAt
+        // the claim date follows the start-odometer photo
+        if (o === odoStart && takenAt != null && takenAt <= System.currentTimeMillis()) { date = Fmt.isoDay(takenAt); dateBtn.text = Fmt.date(date) }
+        updateFuel()
         odoTarget = null
         showOdo(o)
         o.hint.visibility = View.VISIBLE
@@ -314,6 +372,12 @@ class ClaimFormActivity : AppCompatActivity() {
 
     private fun updateFuel() {
         if (!::fuelSum.isInitialized) return
+        if (::draftBtn.isInitialized) draftBtn.visibility = if (odoEnd.photo.isBlank()) View.VISIBLE else View.GONE
+        val same = sameDay(odoStart.time, odoEnd.time)
+        val bothPhotos = odoStart.photo.isNotBlank() && odoEnd.photo.isNotBlank()
+        dateNote.visibility = if (bothPhotos && same != true) View.VISIBLE else View.GONE
+        dateNote.text = if (same == false) tr("शुरू और आखिर की photo अलग-अलग तारीख की हैं। यह Claim सिर्फ Atul या Rahul approve करेंगे।", "The start and end photos are on different dates. Only Atul or Rahul can approve this claim.")
+            else tr("एक photo में तारीख नहीं मिली। यह Claim सिर्फ Atul या Rahul approve करेंगे।", "One photo has no date. Only Atul or Rahul can approve this claim.")
         val a = odoValue(odoStart); val b = odoValue(odoEnd)
         val calc = fuelCalc()
         fuelSum.setTextColor(if (calc == null && a > 0 && b > 0) Ui.DANGER else Ui.TEXT)
@@ -348,9 +412,11 @@ class ClaimFormActivity : AppCompatActivity() {
             .put("km", if (fuel) (fuelCalc()?.first ?: 0.0) else if (kmBox.visibility == View.VISIBLE) km.text.toString().toDoubleOrNull() ?: 0.0 else 0.0)
             .put("submittedOn", Fmt.today())
         if (fuel) claim.put("odoStart", odoValue(odoStart)).put("odoEnd", odoValue(odoEnd)).put("rate", fuelRate)
+            .put("odoStartTime", odoStart.time ?: 0L).put("odoEndTime", odoEnd.time ?: 0L)
         Outbox.add(this, claim, photo, if (fuel) odoStart.photo else "", if (fuel) odoEnd.photo else "")
         busy(tr("Claim भेजा जा रहा है…", "Sending claim…"), { Outbox.send(this, claimId) }, onError = { e ->
             if (e is ApiException && e.network) {
+                Journeys.remove(this, claimId) // it is in the outbox now
                 AlertDialog.Builder(this).setTitle(tr("Phone पर save हो गया", "Saved on the phone"))
                     .setMessage(tr("अभी internet नहीं है। Claim इस phone में save है और internet आने पर अपने आप चला जाएगा।", "No internet right now. The claim is saved on this phone and will be sent automatically when the internet is back."))
                     .setPositiveButton("OK") { _, _ -> finish() }.setCancelable(false).show()
@@ -361,6 +427,7 @@ class ClaimFormActivity : AppCompatActivity() {
                 false
             }
         }) {
+            Journeys.remove(this, claimId)
             toast(tr("Claim भेज दिया। Approval के बाद आपको दिखेगा।", "Claim sent. You will see it update after approval."))
             finish()
         }

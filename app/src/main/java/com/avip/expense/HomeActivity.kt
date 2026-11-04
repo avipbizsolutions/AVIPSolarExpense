@@ -65,8 +65,13 @@ class HomeActivity : AppCompatActivity() {
                 setBackgroundColor(Color.WHITE)
                 setPadding(dp(16), dp(10), dp(16), dp(14))
                 elevation = dpf(8f)
-                addView(pillButton(tr("नया Claim डालें", "Add new claim"), Ui.SUN, Ui.TEXT, heightDp = 54, iconRes = R.drawable.ic_plus) {
-                    startActivity(Intent(this@HomeActivity, ClaimFormActivity::class.java))
+                addView(horizontal {
+                    addView(pillButton(tr("Journey शुरू", "Start journey"), Ui.BRAND, heightDp = 54, iconRes = R.drawable.ic_location) {
+                        startActivity(Intent(this@HomeActivity, ClaimFormActivity::class.java).putExtra(ClaimFormActivity.EXTRA_JOURNEY, "new"))
+                    }, lp(0, WRAP, 1f).margins(context, r = 8))
+                    addView(pillButton(tr("नया Claim", "New claim"), Ui.SUN, Ui.TEXT, heightDp = 54, iconRes = R.drawable.ic_plus) {
+                        startActivity(Intent(this@HomeActivity, ClaimFormActivity::class.java))
+                    }, lp(0, WRAP, 1f))
                 }, lp())
             })
         }
@@ -176,6 +181,34 @@ class HomeActivity : AppCompatActivity() {
                     startActivity(Intent(this@HomeActivity, TeamClaimsActivity::class.java).putExtra(TeamClaimsActivity.EXTRA_MODE, TeamClaimsActivity.MODE_ALL))
                 }
             }, lp().margins(this, b = 8))
+        }
+
+        // ---- bike journeys in progress (drafts on this phone)
+        val drafts = Journeys.all(this)
+        if (drafts.isNotEmpty()) {
+            body.addView(text(tr("चल रही Journey (Draft)", "Journeys in progress (drafts)"), 18f, Ui.TEXT, bold = true), lp().margins(this, t = 4, b = 8))
+            drafts.forEach { j ->
+                val t = j.optLong("startTime", 0L).takeIf { it > 0 } ?: j.optLong("savedAt")
+                val whenTxt = java.text.SimpleDateFormat("dd MMM, hh:mm a", java.util.Locale.ENGLISH).format(java.util.Date(t))
+                body.addView(card(14) {
+                    background = rounded(Ui.BRAND_LIGHT, dpf(16f), Ui.BRAND, dp(1))
+                    isClickable = true
+                    foreground = context.ripple()
+                    addView(text(tr("Journey शुरू: $whenTxt", "Started: $whenTxt"), 15f, Ui.TEXT, bold = true))
+                    addView(text(tr("शुरू का odometer: ", "Start odometer: ") + j.optString("startReading") +
+                        (if (j.optString("description").isNotBlank()) " · " + j.optString("description") else ""), 13.5f, Ui.MUTED), lp().margins(context, t = 2))
+                    addView(text(tr("लौटने पर tap करें → आखिर के odometer की photo → Claim भेजें", "Tap when you are back → end odometer photo → send claim"), 13f, Ui.BRAND, bold = true), lp().margins(context, t = 6))
+                    setOnClickListener {
+                        startActivity(Intent(this@HomeActivity, ClaimFormActivity::class.java).putExtra(ClaimFormActivity.EXTRA_JOURNEY, j.optString("id")))
+                    }
+                    setOnLongClickListener {
+                        confirm(tr("Draft हटाएँ?", "Delete draft?"), tr("यह Journey draft phone से हट जाएगा।", "This journey draft will be deleted from the phone.")) {
+                            Journeys.remove(this@HomeActivity, j.optString("id")); render()
+                        }
+                        true
+                    }
+                }, lp().margins(this, b = 8))
+            }
         }
 
         // ---- my claims

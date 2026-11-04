@@ -52,7 +52,8 @@ data class Claim(
     val odoStart: Double = 0.0, val odoEnd: Double = 0.0, val rate: Double = 0.0,
     val hasOdoStart: Boolean = false, val hasOdoEnd: Boolean = false,
     val localOdoStart: String = "", val localOdoEnd: String = "",
-    val adminOnly: Boolean = false,
+    val adminOnly: Boolean = false, val adminReason: String = "", val odoDatesDiffer: Boolean = false,
+    val odoStartTime: String = "", val odoEndTime: String = "",
 ) {
     val isFuel get() = Settings.isFuel(category)
 
@@ -68,7 +69,8 @@ data class Claim(
             o.optDouble("odoStart", 0.0), o.optDouble("odoEnd", 0.0), o.optDouble("rate", 0.0),
             o.optBoolean("hasOdoStart"), o.optBoolean("hasOdoEnd"),
             o.optString("localOdoStart"), o.optString("localOdoEnd"),
-            o.optBoolean("adminOnly"),
+            o.optBoolean("adminOnly"), o.optString("adminReason"), o.optBoolean("odoDatesDiffer"),
+            o.optString("odoStartTime"), o.optString("odoEndTime"),
         )
 
         fun list(a: JSONArray?): List<Claim> = (0 until (a?.length() ?: 0)).map { from(a!!.getJSONObject(it)) }
@@ -183,6 +185,15 @@ object Fmt {
 object Photos {
     fun dir(c: Context): File = File(c.filesDir, "bills").apply { mkdirs() }
 
+    /** When a gallery photo was taken (from its EXIF), or null when the photo does not say. */
+    fun takenAt(c: Context, uri: Uri): Long? = try {
+        c.contentResolver.openInputStream(uri)?.use { input ->
+            val ex = ExifInterface(input)
+            val v = ex.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL) ?: ex.getAttribute(ExifInterface.TAG_DATETIME)
+            if (v.isNullOrBlank()) null else SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).parse(v)?.time
+        }
+    } catch (_: Exception) { null }
+
     /** Copies a gallery / file-picker image into the app, upright and shrunk. Returns the file. */
     fun importUri(c: Context, uri: Uri, name: String): File? {
         return try {
@@ -228,6 +239,33 @@ object Photos {
             bmp.compress(Bitmap.CompressFormat.JPEG, 82, bos)
             out.writeBytes(bos.toByteArray())
         }
+    }
+}
+
+/**
+ * Bike journeys in progress: started with the start-odometer photo, kept on the phone as a
+ * draft until the person adds the end-odometer photo and sends the claim.
+ */
+object Journeys {
+    private const val PREFS = "journeys"
+
+    fun all(c: Context): List<JSONObject> {
+        val me = Session.user(c)?.id ?: return emptyList()
+        return c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).all.values
+            .mapNotNull { v -> try { JSONObject(v as String) } catch (_: Exception) { null } }
+            .filter { it.optString("owner") == me }
+            .sortedBy { it.optLong("startTime") }
+    }
+
+    fun get(c: Context, id: String): JSONObject? = all(c).firstOrNull { it.optString("id") == id }
+
+    fun save(c: Context, o: JSONObject) {
+        o.put("owner", Session.user(c)?.id ?: "")
+        c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(o.getString("id"), o.toString()).commit()
+    }
+
+    fun remove(c: Context, id: String) {
+        c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(id).commit()
     }
 }
 
