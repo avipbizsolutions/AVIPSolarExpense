@@ -52,6 +52,7 @@ data class Claim(
     val odoStart: Double = 0.0, val odoEnd: Double = 0.0, val rate: Double = 0.0,
     val hasOdoStart: Boolean = false, val hasOdoEnd: Boolean = false,
     val localOdoStart: String = "", val localOdoEnd: String = "",
+    val adminOnly: Boolean = false,
 ) {
     val isFuel get() = Settings.isFuel(category)
 
@@ -67,6 +68,7 @@ data class Claim(
             o.optDouble("odoStart", 0.0), o.optDouble("odoEnd", 0.0), o.optDouble("rate", 0.0),
             o.optBoolean("hasOdoStart"), o.optBoolean("hasOdoEnd"),
             o.optString("localOdoStart"), o.optString("localOdoEnd"),
+            o.optBoolean("adminOnly"),
         )
 
         fun list(a: JSONArray?): List<Claim> = (0 until (a?.length() ?: 0)).map { from(a!!.getJSONObject(it)) }

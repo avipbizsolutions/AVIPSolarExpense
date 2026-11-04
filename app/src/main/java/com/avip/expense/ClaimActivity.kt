@@ -125,9 +125,11 @@ class ClaimActivity : AppCompatActivity() {
                     setOnClickListener { confirm(tr("Claim हटाएँ?", "Delete claim?"), tr("यह claim office नहीं गया है। Phone से हटा दें?", "This claim has not reached the office. Delete it from the phone?")) { Outbox.remove(this@ClaimActivity, c.id); finish() } }
                 }, lp())
             }
-            c.status == Status.PENDING && u.canApprove && !mine && !u.canDecide(c.amount, Settings.approvalLimit(this)) -> {
-                actions.addView(note(tr("${Fmt.rupees(Settings.approvalLimit(this))} से ऊपर का claim — सिर्फ Atul या Rahul approve कर सकते हैं।",
-                    "Above ${Fmt.rupees(Settings.approvalLimit(this))}: only Atul or Rahul can approve this claim."), Ui.SUN_LIGHT, Ui.SUN_TEXT), lp())
+            c.status == Status.PENDING && u.canApprove && !mine && !u.canDecide(c, Settings.approvalLimit(this)) -> {
+                val limit = Settings.approvalLimit(this)
+                actions.addView(note(if (c.amount > limit) tr("${Fmt.rupees(limit)} से ऊपर का claim — सिर्फ Atul या Rahul approve कर सकते हैं।",
+                    "Above ${Fmt.rupees(limit)}: only Atul or Rahul can approve this claim.")
+                    else tr("Manager का claim — सिर्फ Atul या Rahul approve कर सकते हैं।", "Claim of a manager: only Atul or Rahul can approve it."), Ui.SUN_LIGHT, Ui.SUN_TEXT), lp())
             }
             c.status == Status.PENDING && u.canApprove && !mine -> {
                 actions.addView(horizontal {

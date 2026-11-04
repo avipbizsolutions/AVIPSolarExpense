@@ -16,8 +16,10 @@
  *
  * Roles (Expense App Role in the Team Directory):
  *   Member   – submit and see own claims, see own advances and balance
- *   Approver – also approve / reject claims of others, up to the "Manager approval limit"
+ *   Approver – also approve / reject claims of Members and Accounts, up to the "Manager approval limit"
  *              in the Settings tab (above it only Admin – Atul / Rahul – can decide)
+ * Claims of Approvers (managers) and Admins are decided only by an Admin (Atul / Rahul),
+ * whatever the amount; nobody decides their own claim.
  *   Accounts – also record advances and mark approved claims as paid
  *   Admin    – everything
  */
@@ -198,10 +200,23 @@ function canApprove(u) { return ['Approver', 'Admin'].indexOf(role(u)) >= 0; }
 function isAccounts(u) { return ['Accounts', 'Admin'].indexOf(role(u)) >= 0; }
 function seesAll(u) { return canApprove(u) || isAccounts(u); }
 function isAdmin(u) { return role(u) === 'Admin'; }
-/** Managers (Approver) decide claims up to the limit; above it only Admin (Atul / Rahul). */
+/** Expense App Role of the person who made the claim (by Employee ID, else by name). */
+let ROLE_BY_ID_ = null;
+function ownerRole(c) {
+  if (!ROLE_BY_ID_) {
+    ROLE_BY_ID_ = {};
+    try { authUsers_(APP).forEach(function (p) { ROLE_BY_ID_[p.id] = p.role; ROLE_BY_ID_['name:' + clean(p.name).toLowerCase()] = p.role; }); } catch (_) {}
+  }
+  const id = clean(c['Employee ID']);
+  return clean(id ? ROLE_BY_ID_[id] : ROLE_BY_ID_['name:' + clean(c['Team Member']).toLowerCase()]);
+}
+/** Only Atul / Rahul (Admin): claims above the limit, and every claim of a manager or admin. */
+function needsAdmin(c, limit) {
+  return money(c['Amount (₹)']) > limit || ['Approver', 'Admin'].indexOf(ownerRole(c)) >= 0;
+}
 function canDecide(u, c, limit) {
   if (!canApprove(u)) return false;
-  return isAdmin(u) || money(c['Amount (₹)']) <= limit;
+  return isAdmin(u) || !needsAdmin(c, limit);
 }
 
 function sameName(a, b) { return clean(a).toLowerCase() === clean(b).toLowerCase(); }
@@ -250,7 +265,7 @@ function claimOut(c, withMember) {
     paymentRef: clean(c['Payment Reference']), submittedOn: iso(c['Submitted On']),
     odoStart: num(c['Odometer Start']), odoEnd: num(c['Odometer End']), rate: num(c['Rate per KM (₹)']),
     hasOdoStart: clean(c['Start Odometer Photo']) !== '', hasOdoEnd: clean(c['End Odometer Photo']) !== '',
-    adminOnly: money(c['Amount (₹)']) > lim,
+    adminOnly: needsAdmin(c, lim),
   };
   if (withMember) { o.member = clean(c['Team Member']); o.memberId = clean(c['Employee ID']); o.team = clean(c['Team']); }
   return o;
@@ -503,7 +518,10 @@ function decide(d) {
       const c = all.filter(function (r) { return clean(r['Claim ID']) === clean(id); })[0];
       if (!c) { skipped.push(id + ': not found'); return; }
       if (owns(u, c)) { skipped.push(id + ': you cannot approve your own claim'); return; }
-      if (!canDecide(u, c, lim)) { skipped.push(id + ': above ₹' + lim + ', only Atul or Rahul can approve'); return; }
+      if (!canDecide(u, c, lim)) {
+        skipped.push(id + ': ' + (money(c['Amount (₹)']) > lim ? 'above ₹' + lim : 'claim of a manager') + ', only Atul or Rahul can approve');
+        return;
+      }
       if ((clean(c['Status']) || ST.PENDING) !== ST.PENDING) { skipped.push(id + ': already ' + clean(c['Status'])); return; }
       setFields(LOG, c._row, {
         'Status': approve ? ST.APPROVED : ST.REJECTED,
