@@ -227,7 +227,7 @@ fun AppCompatActivity.payDialog(ids: List<String>, total: Double, onDone: () -> 
     val dateBtn = text(tr("तारीख: ", "Date: ") + Fmt.date(date), 15f, Ui.BLUE, bold = true) { setPadding(0, dp(12), 0, dp(4)) }
     val box = vertical(18) {
         addView(text(tr("${ids.size} claim · कुल ${Fmt.rupees(total)}", "${ids.size} claims · total ${Fmt.rupees(total)}"), 16f, Ui.TEXT, bold = true))
-        addView(text(tr("Payment कैसे किया", "How was it paid"), 13f, Ui.MUTED, bold = true), lp().margins(context, t = 12, b = 6))
+        addView(text(req(tr("Payment कैसे किया", "How was it paid")), 13f, Ui.MUTED, bold = true), lp().margins(context, t = 12, b = 6))
         addView(chips(Store.PAY_VIA, "") { via = it }, lp())
         addView(ref, lp().margins(context, t = 12))
         addView(dateBtn, lp())

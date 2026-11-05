@@ -162,14 +162,15 @@ class AdvanceRequestsActivity : AppCompatActivity() {
             val open = AdvRequest.list(mine?.optJSONArray("advRequests")).filter { it.status == AdvRequest.PENDING || it.status == AdvRequest.APPROVED }
             if (open.isNotEmpty()) addView(text(tr("पहले से माँगा: ", "Already requested: ") + open.joinToString { Fmt.rupees(it.amount) + " (" + AdvRequest.label(it.status) + ")" }, 12.5f, Ui.MUTED), lp().margins(context, t = 4))
         }, lp().margins(this, b = 12))
+        b.addView(text(req(tr("ज़रूरी", "Required")), 12.5f, Ui.MUTED) { gravity = Gravity.END }, lp().margins(this, b = 6))
         b.addView(section(tr("Request", "Request")) {
-            amount = field(this, tr("कितना चाहिए (₹)", "Amount needed (₹)"), "", tr("जैसे 2000", "e.g. 2000"), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL, R.drawable.ic_rupee, 9) {}
+            amount = field(this, tr("कितना चाहिए (₹)", "Amount needed (₹)"), "", tr("जैसे 2000", "e.g. 2000"), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL, R.drawable.ic_rupee, 9, required = true) {}
             amount.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 22f)
-            purpose = field(this, tr("किस काम के लिए", "What it is for"), "", tr("जैसे Gaya site – labour + transport", "e.g. Gaya site – labour + transport"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, R.drawable.ic_edit, 300) {}
+            purpose = field(this, tr("किस काम के लिए", "What it is for"), "", tr("जैसे Gaya site – labour + transport", "e.g. Gaya site – labour + transport"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, R.drawable.ic_edit, 300, required = true) {}
             val neededBtn = text(tr("कब तक चाहिए: चुनें", "Needed by: choose"), 15f, Ui.BRAND, bold = true) { setPadding(0, dp(14), 0, dp(6)) }
             neededBtn.setOnClickListener { pickDate(needed.ifBlank { Fmt.today() }) { d -> needed = d; neededBtn.text = tr("कब तक चाहिए: ", "Needed by: ") + Fmt.date(d) } }
             addView(neededBtn)
-            addView(text(tr("Payment कैसे चाहिए", "How to pay"), 13f, Ui.MUTED, bold = true), lp().margins(context, t = 8, b = 6))
+            addView(text(req(tr("Payment कैसे चाहिए", "How to pay")), 13f, Ui.MUTED, bold = true), lp().margins(context, t = 8, b = 6))
             addView(chips(listOf("Cash", "UPI", "Bank Transfer"), "") { payVia = it })
         })
         b.addView(note(tr("${Fmt.rupees(limit)} से ऊपर का advance, और Manager का advance, सिर्फ Atul या Rahul approve करेंगे।", "Advances above ${Fmt.rupees(limit)}, and advances for managers, are approved only by Atul or Rahul."), Ui.SUN_LIGHT, Ui.SUN_TEXT), lp().margins(this, t = 12))
@@ -324,7 +325,7 @@ class AdvanceRequestsActivity : AppCompatActivity() {
     private data class Quad(val v: Double, val l: String, val bg: Int, val fg: Int)
 
     private fun decide(r: AdvRequest, approve: Boolean) {
-        val noteBox = input(if (approve) tr("Remark (अगर हो)", "Remark (optional)") else tr("Reject करने का कारण", "Reason for rejecting"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES)
+        val noteBox = input(if (approve) tr("Remark (अगर हो)", "Remark (optional)") else tr("Reject करने का कारण", "Reason for rejecting"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, required = !approve)
         val d = AlertDialog.Builder(this)
             .setTitle(if (approve) tr("${Fmt.rupees(r.amount)} approve करें?", "Approve ${Fmt.rupees(r.amount)}?") else tr("Reject करें?", "Reject?"))
             .setView(vertical(18) { addView(noteBox, lp()) })
@@ -352,7 +353,7 @@ class AdvanceRequestsActivity : AppCompatActivity() {
         val ref = input(tr("UPI / Bank reference (अगर हो)", "UPI / bank reference (if any)"))
         val box = vertical(18) {
             addView(text(r.member + " · " + Fmt.rupees(r.amount), 16f, Ui.TEXT, bold = true))
-            addView(text(tr("कैसे दिया", "Paid via"), 13f, Ui.MUTED, bold = true), lp().margins(context, t = 10, b = 6))
+            addView(text(req(tr("कैसे दिया", "Paid via")), 13f, Ui.MUTED, bold = true), lp().margins(context, t = 10, b = 6))
             addView(chips(listOf("Cash", "UPI", "Bank Transfer"), via) { via = it })
             addView(ref, lp().margins(context, t = 10))
         }

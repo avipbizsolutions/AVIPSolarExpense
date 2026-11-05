@@ -60,8 +60,8 @@ class LoginActivity : AppCompatActivity() {
     private fun showLogin() {
         val f = frame("Solar Expense", "AVIP Solar")
         f.addView(text(tr("Login करें", "Log in"), 20f, Ui.TEXT, bold = true))
-        val mobile = field(f, "Mobile Number", "", tr("10 अंकों का number", "10-digit number"), InputType.TYPE_CLASS_PHONE, R.drawable.ic_call, 13) {}
-        val pin = field(f, tr("4 अंकों का PIN", "4-digit PIN"), "", "••••", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD, R.drawable.ic_sign, 4) {}
+        val mobile = field(f, "Mobile Number", "", tr("10 अंकों का number", "10-digit number"), InputType.TYPE_CLASS_PHONE, R.drawable.ic_call, 13, required = true) {}
+        val pin = field(f, tr("4 अंकों का PIN", "4-digit PIN"), "", "••••", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD, R.drawable.ic_sign, 4, required = true) {}
         f.addView(pillButton("Login →", Ui.SUN, Ui.TEXT, heightDp = 56) {
             val m = mobile.text.toString().filter { it.isDigit() }.takeLast(10)
             val p = pin.text.toString().trim()
@@ -86,8 +86,8 @@ class LoginActivity : AppCompatActivity() {
         val f = frame(tr("अपना नया PIN बनाएँ", "Set your own PIN"), tr("नमस्ते, ${user?.name ?: ""} · ${Role.label(user?.role ?: "")}", "Hello, ${user?.name ?: ""} · ${Role.label(user?.role ?: "")}"))
         f.addView(text(tr("पहली बार Login पर Office वाला PIN बदलना ज़रूरी है।", "At first login, replace the office PIN with your own."), 15f, Ui.TEXT))
         val numPass = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
-        val pin1 = field(f, tr("नया 4 अंकों का PIN", "New 4-digit PIN"), "", "••••", numPass, R.drawable.ic_sign, 4) {}
-        val pin2 = field(f, tr("PIN दोबारा डालें", "Type the PIN again"), "", "••••", numPass, R.drawable.ic_sign, 4) {}
+        val pin1 = field(f, tr("नया 4 अंकों का PIN", "New 4-digit PIN"), "", "••••", numPass, R.drawable.ic_sign, 4, required = true) {}
+        val pin2 = field(f, tr("PIN दोबारा डालें", "Type the PIN again"), "", "••••", numPass, R.drawable.ic_sign, 4, required = true) {}
         f.addView(vertical {
             listOf(
                 tr("1234, 0000, 1111 जैसा आसान PIN नहीं चलेगा", "Easy PINs like 1234, 0000, 1111 are not allowed"),

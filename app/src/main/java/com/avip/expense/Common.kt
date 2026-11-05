@@ -67,7 +67,7 @@ fun Activity.confirm(title: String, message: String, yes: String = tr("हाँ
 
 /** Asks for one line of text. */
 fun Activity.askText(title: String, hint: String, initial: String = "", required: Boolean = true, onOk: (String) -> Unit) {
-    val e = input(hint, value = initial)
+    val e = input(hint, value = initial, required = required)
     val box = vertical(16) { addView(e, lp()) }
     val d = AlertDialog.Builder(this).setTitle(title).setView(box)
         .setPositiveButton("OK", null).setNegativeButton("Cancel", null).create()
@@ -138,7 +138,7 @@ fun Activity.screen(
 
 /** White card with a bold heading. */
 fun android.content.Context.section(title: String, subtitle: String? = null, block: LinearLayout.() -> Unit): View = card(16) {
-    addView(text(title, 16f, Ui.TEXT, bold = true))
+    addView(text(if (title.endsWith(" *")) req(title.dropLast(2)) else title, 16f, Ui.TEXT, bold = true))
     if (!subtitle.isNullOrBlank()) addView(text(subtitle, 13f, Ui.MUTED), lp().margins(context, t = 2))
     addView(vertical { block() }, lp().margins(context, t = 8))
 }.also { it.layoutParams = lp().margins(this, b = 12) }

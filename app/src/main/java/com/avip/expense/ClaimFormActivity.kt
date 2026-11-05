@@ -118,8 +118,9 @@ class ClaimFormActivity : AppCompatActivity() {
 
         body = screen(tr("नया Claim", "New claim"), tr("एक bill = एक claim", "One bill = one claim"), bottom = pillButton(tr("Claim भेजें", "Send claim"), Ui.SUN, Ui.TEXT, heightDp = 54) { submit() })
 
+        body.addView(text(req(tr("ज़रूरी", "Required")), 12.5f, Ui.MUTED) { gravity = android.view.Gravity.END }, lp().margins(this, b = 6))
         body.addView(section(tr("खर्च", "Expense")) {
-            addView(label(tr("तारीख", "Date")))
+            addView(label(req(tr("तारीख", "Date"))))
             dateBtn = selector(Fmt.date(date), R.drawable.ic_history) {
                 pickDate(date) { d ->
                     if ((Fmt.parseIso(d) ?: 0L) > System.currentTimeMillis()) { toast(tr("आगे की तारीख नहीं चलेगी", "A future date is not allowed")); return@pickDate }
@@ -127,7 +128,7 @@ class ClaimFormActivity : AppCompatActivity() {
                 }
             }
             addView(dateBtn, lp())
-            addView(label(tr("किस चीज़ का खर्च (Category)", "Category")))
+            addView(label(req(tr("किस चीज़ का खर्च (Category)", "Category"))))
             catBtn = selector(tr("Category चुनें", "Choose category"), R.drawable.ic_grid) {
                 AlertDialog.Builder(this@ClaimFormActivity).setTitle("Category")
                     .setItems(categories.toTypedArray()) { _, i ->
@@ -142,11 +143,11 @@ class ClaimFormActivity : AppCompatActivity() {
             }
             addView(catBtn, lp())
             amountBox = vertical {
-                amount = field(this, "Amount (₹)", "", tr("जैसे 350", "e.g. 350"), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL, R.drawable.ic_rupee, 9) { checkAdvance(bal) }
+                amount = field(this, "Amount (₹)", "", tr("जैसे 350", "e.g. 350"), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL, R.drawable.ic_rupee, 9, required = true) { checkAdvance(bal) }
                 amount.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 22f)
             }
             addView(amountBox, lp())
-            desc = field(this, tr("किस काम के लिए", "Purpose"), "", tr("जैसे: Danapur site survey visit", "e.g. Danapur site survey visit"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, R.drawable.ic_edit, 300) {}
+            desc = field(this, tr("किस काम के लिए", "Purpose"), "", tr("जैसे: Danapur site survey visit", "e.g. Danapur site survey visit"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, R.drawable.ic_edit, 300, required = true) {}
             kmBox = vertical {
                 visibility = View.GONE
                 km = field(this, tr("कितने KM चले", "KM travelled"), "", tr("जैसे 42", "e.g. 42"), InputType.TYPE_CLASS_NUMBER, R.drawable.ic_location, 5) {}
@@ -157,14 +158,14 @@ class ClaimFormActivity : AppCompatActivity() {
         fuelBox = section(tr("Odometer (Fuel / Petrol)", "Odometer (fuel / petrol)"),
             tr("जाने से पहले और लौटने पर odometer की GPS photo लें। KM और Amount अपने आप बनेगा: ₹${Fmt.km(fuelRate)} प्रति km।",
                "Take a GPS photo of the odometer before you start and when you are back. KM and amount are worked out automatically at ₹${Fmt.km(fuelRate)} per km.")) {
-            addView(text(tr("किसकी bike?", "Whose bike?"), 15f, Ui.TEXT, bold = true), lp().margins(context, t = 4, b = 6))
+            addView(text(req(tr("किसकी bike?", "Whose bike?")), 15f, Ui.TEXT, bold = true), lp().margins(context, t = 4, b = 6))
             bikeChips = vertical { }
             addView(bikeChips, lp())
             fuelHint = text("", 12.5f, Ui.MUTED)
             addView(fuelHint, lp().margins(context, t = 4))
             companyBox = vertical {
-                bikeNo = field(this, tr("कौन सी bike (number)", "Which bike (number)"), "", tr("जैसे BR01 AB 4521", "e.g. BR01 AB 4521"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS, R.drawable.ic_edit, 20) {}
-                petrol = field(this, tr("Petrol भरवाया (₹) — bill जितना", "Petrol filled (₹), as on the bill"), "", tr("जैसे 300", "e.g. 300"), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL, R.drawable.ic_rupee, 9) { updateFuel() }
+                bikeNo = field(this, tr("कौन सी bike (number)", "Which bike (number)"), "", tr("जैसे BR01 AB 4521", "e.g. BR01 AB 4521"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS, R.drawable.ic_edit, 20, required = true) {}
+                petrol = field(this, tr("Petrol भरवाया (₹) — bill जितना", "Petrol filled (₹), as on the bill"), "", tr("जैसे 300", "e.g. 300"), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL, R.drawable.ic_rupee, 9, required = true) { updateFuel() }
                 petrol.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 20f)
                 addView(text(tr("नीचे \"Bill photo\" में petrol bill की photo लगाना ज़रूरी है।", "Adding the petrol bill under \"Bill photo\" below is required."), 12.5f, Ui.SUN_TEXT, bold = true), lp().margins(context, t = 6))
             }.apply { visibility = View.GONE }
@@ -185,7 +186,7 @@ class ClaimFormActivity : AppCompatActivity() {
         body.addView(fuelBox)
         showBike()
 
-        body.addView(section(tr("पैसे किसने दिए", "Who paid")) {
+        body.addView(section(tr("पैसे किसने दिए", "Who paid") + " *") {
             addView(chips(listOf(tr("अपने पैसे से", "Own money"), tr("Advance से", "From advance"), tr("Company ने दिया", "Paid by company")), tr("अपने पैसे से", "Own money")) { pick ->
                 paidBy = when (pick) { tr("Advance से", "From advance") -> "Advance"; tr("Company ने दिया", "Paid by company") -> "Company"; else -> "Self" }
                 checkAdvance(bal)
@@ -193,7 +194,7 @@ class ClaimFormActivity : AppCompatActivity() {
             advanceNote = text("", 13f, Ui.SUN_TEXT) { visibility = View.GONE }
             addView(advanceNote, lp().margins(context, t = 8))
             addView(text(tr("अपने पैसे से = Office आपको वापस देगा। Advance से = आपके Advance में से कटेगा। Company ने दिया = Company ने सीधे pay किया।", "Own money = the office pays you back. From advance = deducted from your advance. Paid by company = AVIP paid directly."), 12.5f, Ui.MUTED), lp().margins(context, t = 8))
-            addView(label(tr("Payment कैसे किया", "How was it paid")))
+            addView(label(req(tr("Payment कैसे किया", "How was it paid"))))
             addView(chips(modes, "") { paymentMode = it }, lp())
         })
 
@@ -270,7 +271,7 @@ class ClaimFormActivity : AppCompatActivity() {
 
     private fun needsKm(cat: String) = cat.contains("Fuel", true) || cat.contains("Travel", true) || cat.contains("Vehicle", true)
 
-    private fun label(t: String): View = text(t, 13f, Ui.MUTED, bold = true).also { it.layoutParams = lp().margins(this, t = 12, b = 6) }
+    private fun label(t: CharSequence): View = text(t, 13f, Ui.MUTED, bold = true).also { it.layoutParams = lp().margins(this, t = 12, b = 6) }
 
     private fun selector(value: String, iconRes: Int, onClick: () -> Unit) = text(value, 16f, Ui.MUTED) {
         background = rounded(android.graphics.Color.WHITE, dpf(12f), 0xFFC8BDD8.toInt(), dp(1))
@@ -335,7 +336,7 @@ class ClaimFormActivity : AppCompatActivity() {
     }
 
     private fun odoSlot(parent: LinearLayout, o: Odo, title: String) {
-        parent.addView(text(title, 15f, Ui.TEXT, bold = true), lp().margins(this, t = 14, b = 6))
+        parent.addView(text(req(title), 15f, Ui.TEXT, bold = true), lp().margins(this, t = 14, b = 6))
         o.box = vertical { }
         parent.addView(o.box, lp())
         parent.addView(horizontal {
@@ -351,7 +352,7 @@ class ClaimFormActivity : AppCompatActivity() {
         }, lp().margins(this, t = 6))
         parent.addView(text(tr("Odometer की photo सिर्फ GPS Camera से (Gallery नहीं)।", "Odometer photos only from the GPS camera (no gallery)."), 12f, Ui.MUTED), lp().margins(this, t = 4))
         o.reading = field(parent, tr("Reading (photo से)", "Reading (from the photo)"), "", tr("जैसे 12540", "e.g. 12540"),
-            InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL, R.drawable.ic_edit, 8) { updateFuel() }
+            InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL, R.drawable.ic_edit, 8, required = true) { updateFuel() }
         o.hint = text("", 12.5f, Ui.MUTED) { visibility = View.GONE }
         parent.addView(o.hint, lp().margins(this, t = 4))
         o.alts = horizontal { visibility = View.GONE }

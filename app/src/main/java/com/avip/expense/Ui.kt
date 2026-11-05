@@ -135,9 +135,9 @@ fun Context.pillButton(
     setOnClickListener { onClick() }
 }
 
-fun Context.input(hint: String, type: Int = InputType.TYPE_CLASS_TEXT, value: String = "", maxLen: Int = 0) =
+fun Context.input(hint: String, type: Int = InputType.TYPE_CLASS_TEXT, value: String = "", maxLen: Int = 0, required: Boolean = false) =
     EditText(this).apply {
-        this.hint = hint
+        this.hint = if (required) req(hint) else hint
         inputType = type
         setText(value)
         setTextColor(Ui.TEXT)
@@ -155,14 +155,23 @@ fun EditText.onChange(block: (String) -> Unit) = addTextChangedListener(object :
 })
 
 /** Label above an input, with an icon. Returns the EditText; adds both to [parent]. */
+/** A label with a red * after it: the field must be filled. */
+fun req(label: CharSequence): CharSequence = android.text.SpannableStringBuilder(label).apply {
+    val start = length
+    append(" *")
+    setSpan(android.text.style.ForegroundColorSpan(Ui.DANGER), start, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    setSpan(android.text.style.StyleSpan(Typeface.BOLD), start, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+}
+
 fun Context.field(
     parent: LinearLayout, label: String, value: String, hint: String = "",
     type: Int = InputType.TYPE_CLASS_TEXT, iconRes: Int = 0, maxLen: Int = 0,
+    required: Boolean = false,
     onChanged: (String) -> Unit,
 ): EditText {
     parent.addView(horizontal {
         if (iconRes != 0) addView(icon(iconRes, Ui.BRAND, 16), lp(dp(16), dp(16)).margins(context, r = 6))
-        addView(text(label, 13f, Ui.MUTED, bold = true))
+        addView(text(if (required) req(label) else label, 13f, Ui.MUTED, bold = true))
     }, lp().margins(this, t = 12, b = 6))
     val e = input(hint, type, value, maxLen)
     e.onChange(onChanged)
@@ -171,7 +180,8 @@ fun Context.field(
 }
 
 fun Context.sectionTitle(title: String, subtitle: String? = null): View = vertical {
-    addView(text(title, 17f, Ui.TEXT, bold = true))
+    // a title ending in " *" is a required choice: the * is shown in red
+    addView(text(if (title.endsWith(" *")) req(title.dropLast(2)) else title, 17f, Ui.TEXT, bold = true))
     if (!subtitle.isNullOrBlank()) addView(text(subtitle, 12.5f, Ui.MUTED), lp().margins(context, t = 2))
 }
 

@@ -154,7 +154,7 @@ class AdvancesActivity : AppCompatActivity() {
         var memberId = ""
         var via = ""
         var date = Fmt.today()
-        val who = text(tr("व्यक्ति चुनें", "Choose person"), 16f, Ui.MUTED) {
+        val who = text(req(tr("व्यक्ति चुनें", "Choose person")), 16f, Ui.MUTED) {
             background = rounded(android.graphics.Color.WHITE, dpf(12f), 0xFFC8BDD8.toInt(), dp(1))
             setPadding(dp(14), dp(12), dp(14), dp(12))
         }
@@ -164,7 +164,7 @@ class AdvancesActivity : AppCompatActivity() {
                 memberId = people[i].optString("id"); who.text = names[i]; who.setTextColor(Ui.TEXT)
             }.show()
         }
-        val amount = input("Amount (₹)", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
+        val amount = input("Amount (₹)", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL, required = true)
         val ref = input(tr("UPI / Bank reference (अगर हो)", "UPI / bank reference (if any)"))
         val purpose = input(tr("किस काम के लिए", "Purpose"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES)
         val dateBtn = text(tr("तारीख: ", "Date: ") + Fmt.date(date), 15f, Ui.BLUE, bold = true) { setPadding(0, dp(12), 0, dp(4)) }
@@ -172,7 +172,7 @@ class AdvancesActivity : AppCompatActivity() {
         val box = vertical(18) {
             addView(who, lp())
             addView(amount, lp().margins(context, t = 10))
-            addView(text(tr("कैसे दिया", "Paid via"), 13f, Ui.MUTED, bold = true), lp().margins(context, t = 12, b = 6))
+            addView(text(req(tr("कैसे दिया", "Paid via")), 13f, Ui.MUTED, bold = true), lp().margins(context, t = 12, b = 6))
             addView(chips(Store.PAY_VIA, "") { via = it }, lp())
             addView(ref, lp().margins(context, t = 10))
             addView(purpose, lp().margins(context, t = 10))
