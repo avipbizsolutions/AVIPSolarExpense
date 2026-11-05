@@ -35,10 +35,9 @@ class HomeActivity : AppCompatActivity() {
         if (Sync.pending(this)) Sync.schedule(this)
     }
 
-    /** Approvers and accounts: allow notifications and start the background check. */
+    /** Everyone: allow notifications and start the background check (own claims; approvers also what waits for them). */
     private fun setupAlerts() {
-        val u = user ?: return
-        if (!(u.canApprove || u.isAccounts)) { ApprovalAlerts.stop(this); return }
+        if (user == null) return
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 41)

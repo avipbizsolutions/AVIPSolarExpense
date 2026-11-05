@@ -733,6 +733,18 @@ function pending(d) {
       out.toPay.push({ id: clean(r['Request ID']), member: clean(r['Team Member']), amount: money(r['Amount (₹)']) });
     });
   }
+  // the person's own claims and advance requests of the last 90 days, with their status,
+  // so the phone can say when one is approved, rejected or paid
+  const since = Date.now() - 90 * 86400000;
+  const when = function (v) { return v instanceof Date ? v.getTime() : 0; };
+  out.myClaims = rows(LOG).filter(function (c) { return owns(u, c) && (when(c['Submitted On']) || when(c['Date'])) >= since; }).map(function (c) {
+    return { id: clean(c['Claim ID']), status: clean(c['Status']) || ST.PENDING, amount: money(c['Amount (₹)']), category: clean(c['Category']),
+      by: clean(c['Approved By']), remarks: clean(c['Remarks']), via: clean(c['Reimbursed Via']) };
+  }).filter(function (c) { return c.id; });
+  out.myRequests = rows(REQ).filter(function (r) { return owns(u, r) && when(r['Requested On']) >= since; }).map(function (r) {
+    return { id: clean(r['Request ID']), status: clean(r['Status']) || RQ.PENDING, amount: money(r['Amount (₹)']), purpose: clean(r['Purpose']),
+      by: clean(r['Approved By']), remarks: clean(r['Remarks']), via: clean(r['Pay Via']) };
+  });
   return out;
 }
 

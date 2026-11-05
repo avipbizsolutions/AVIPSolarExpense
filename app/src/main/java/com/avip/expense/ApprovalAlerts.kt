@@ -32,11 +32,11 @@ object ApprovalAlerts {
     private const val PREFS = "alerts"
     private const val NOTE_ID = 4101
 
-    /** Start (or keep) the background check for people who approve or pay; stop it for everyone else. */
+    /** Start (or keep) the background check: for everyone (own claims / advances), approvers and accounts also get what waits for them. */
     fun schedule(c: Context) {
         val u = Session.user(c)
         val wm = WorkManager.getInstance(c)
-        if (u == null || !(u.canApprove || u.isAccounts)) { wm.cancelUniqueWork(WORK); return }
+        if (u == null) { wm.cancelUniqueWork(WORK); return }
         val req = PeriodicWorkRequestBuilder<Worker>(15, TimeUnit.MINUTES)
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .build()
@@ -52,8 +52,8 @@ object ApprovalAlerts {
         if (Build.VERSION.SDK_INT < 26) return
         val nm = c.getSystemService(NotificationManager::class.java)
         if (nm.getNotificationChannel(CHANNEL) == null) {
-            nm.createNotificationChannel(NotificationChannel(CHANNEL, tr("Approval के लिए", "Waiting for approval"), NotificationManager.IMPORTANCE_HIGH).apply {
-                description = tr("नए Claim और Advance request", "New claims and advance requests")
+            nm.createNotificationChannel(NotificationChannel(CHANNEL, tr("Claim और Advance", "Claims and advances"), NotificationManager.IMPORTANCE_HIGH).apply {
+                description = tr("Approval के लिए नए claim / advance, और आपके claim / advance का फैसला", "New claims and advances to approve, and decisions on your own")
             })
         }
     }
@@ -63,9 +63,10 @@ object ApprovalAlerts {
     /** Checks once; shows one notification listing what is new. */
     fun check(c: Context) {
         val u = Session.user(c) ?: return
-        if (!(u.canApprove || u.isAccounts)) return
         Lang.load(c)
         val r = Api.call(c, "pending", JSONObject(), timeoutMs = 45000)
+        checkMine(c, u, r)
+        if (!(u.canApprove || u.isAccounts)) return
         val claims = items(r.optJSONArray("claims"))
         val advances = items(r.optJSONArray("advances"))
         val toPay = items(r.optJSONArray("toPay"))
@@ -97,7 +98,54 @@ object ApprovalAlerts {
         show(c, title.trim(), lines, summary)
     }
 
-    private fun show(c: Context, title: String, lines: List<String>, summary: String) {
+    /**
+     * Own claims and advance requests: notify when one is approved, rejected or paid.
+     * The first check only remembers the statuses (no flood of old news).
+     */
+    private fun checkMine(c: Context, u: User, r: JSONObject) {
+        val prefs = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val key = "status_" + u.id
+        val firstRun = !prefs.contains(key)
+        val old = try { JSONObject(prefs.getString(key, "{}") ?: "{}") } catch (_: Exception) { JSONObject() }
+        val now = JSONObject()
+        val lines = mutableListOf<String>()
+        var approved = 0; var rejected = 0; var paid = 0
+
+        for (o in items(r.optJSONArray("myClaims"))) {
+            val id = "c:" + o.optString("id"); val st = o.optString("status")
+            now.put(id, st)
+            if (firstRun || old.optString(id) == st || st == "Pending") continue
+            if (!old.has(id) && st == "Pending") continue
+            val amt = Fmt.rupees(o.optDouble("amount")) + " · " + o.optString("category")
+            when (st) {
+                "Approved" -> { approved++; lines.add(tr("✓ Claim approved · ", "✓ Claim approved · ") + amt + (if (o.optString("by").isNotBlank()) " · " + o.optString("by") else "")) }
+                "Rejected" -> { rejected++; lines.add(tr("✕ Claim reject · ", "✕ Claim rejected · ") + amt + (if (o.optString("remarks").isNotBlank()) " · " + o.optString("remarks") else "")) }
+                "Reimbursed" -> { paid++; lines.add(tr("₹ Claim का पैसा मिला · ", "₹ Claim paid · ") + amt + (if (o.optString("via").isNotBlank()) " · " + o.optString("via") else "")) }
+            }
+        }
+        for (o in items(r.optJSONArray("myRequests"))) {
+            val id = "a:" + o.optString("id"); val st = o.optString("status")
+            now.put(id, st)
+            if (firstRun || old.optString(id) == st || st == "Pending") continue
+            val amt = Fmt.rupees(o.optDouble("amount")) + " · " + o.optString("purpose")
+            when (st) {
+                "Approved" -> { approved++; lines.add(tr("✓ Advance approved · ", "✓ Advance approved · ") + amt + tr(" · Accounts से payment बाकी", " · payment from Accounts pending")) }
+                "Rejected" -> { rejected++; lines.add(tr("✕ Advance reject · ", "✕ Advance rejected · ") + amt + (if (o.optString("remarks").isNotBlank()) " · " + o.optString("remarks") else "")) }
+                "Paid" -> { paid++; lines.add(tr("₹ Advance मिल गया · ", "₹ Advance paid · ") + amt + (if (o.optString("via").isNotBlank()) " · " + o.optString("via") else "")) }
+            }
+        }
+        prefs.edit().putString(key, now.toString()).apply()
+        if (lines.isEmpty()) return
+        val parts = mutableListOf<String>()
+        if (approved > 0) parts.add(tr("$approved approved", "$approved approved"))
+        if (rejected > 0) parts.add(tr("$rejected reject", "$rejected rejected"))
+        if (paid > 0) parts.add(tr("$paid का पैसा मिला", "$paid paid"))
+        show(c, tr("आपके Claim / Advance: ", "Your claims / advances: ") + parts.joinToString(" · "), lines, "", id = MINE_ID)
+    }
+
+    private const val MINE_ID = 4102
+
+    private fun show(c: Context, title: String, lines: List<String>, summary: String, id: Int = NOTE_ID) {
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(c, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         channel(c)
         val open = c.packageManager.getLaunchIntentForPackage(c.packageName)?.apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP }
@@ -118,7 +166,7 @@ object ApprovalAlerts {
             .setAutoCancel(true)
             .setContentIntent(pi)
             .build()
-        try { NotificationManagerCompat.from(c).notify(NOTE_ID, n) } catch (_: SecurityException) {}
+        try { NotificationManagerCompat.from(c).notify(id, n) } catch (_: SecurityException) {}
     }
 
     class Worker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
