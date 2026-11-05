@@ -145,6 +145,7 @@ class SplashActivity : AppCompatActivity() {
             val update = async { withTimeoutOrNull(5000L) { withContext(Dispatchers.IO) { Updater.fetchLatest() } } }
             val config = async { withContext(Dispatchers.IO) { Api.refreshConfig(this@SplashActivity) } }
             Outbox.flush(this@SplashActivity)
+            Thread { PhotoCache.trim(this@SplashActivity) }.start()
 
             val latest = update.await()
             val current = Updater.currentVersionCode(this@SplashActivity)

@@ -29,7 +29,7 @@ object Status {
         APPROVED -> "Approved"
         REJECTED -> "Rejected"
         REIMBURSED -> "Paid"
-        QUEUED -> tr("भेजना बाकी", "Not sent")
+        QUEUED -> tr("भेजा जा रहा है…", "Sending…")
         else -> s
     }
 
@@ -183,6 +183,24 @@ object Fmt {
     fun km(v: Double): String = if (v == Math.floor(v)) v.toLong().toString() else String.format(Locale.US, "%.1f", v)
 }
 
+/** Claim photos already on the phone (sent from here, or opened once), so they open without a download. */
+object PhotoCache {
+    private fun dir(c: Context) = File(c.filesDir, "photo_cache").apply { mkdirs() }
+    fun file(c: Context, claimId: String, which: String) = File(dir(c), claimId.replace(Regex("[^A-Za-z0-9_-]"), "_") + "_" + which + ".jpg")
+    fun has(c: Context, claimId: String, which: String) = file(c, claimId, which).let { it.exists() && it.length() > 0 }
+    fun put(c: Context, claimId: String, which: String, src: File) { try { if (src.exists()) src.copyTo(file(c, claimId, which), overwrite = true) } catch (_: Exception) {} }
+    fun put(c: Context, claimId: String, which: String, bytes: ByteArray) { try { file(c, claimId, which).writeBytes(bytes) } catch (_: Exception) {} }
+    fun bitmap(c: Context, claimId: String, which: String): Bitmap? = try {
+        BitmapFactory.decodeFile(file(c, claimId, which).absolutePath)
+    } catch (_: Exception) { null }
+
+    /** Keeps the cache from growing without end: drops the oldest photos beyond about 300. */
+    fun trim(c: Context) {
+        val files = dir(c).listFiles()?.sortedByDescending { it.lastModified() } ?: return
+        files.drop(300).forEach { it.delete() }
+    }
+}
+
 /** Bill photos: shrunk to a sensible size before they are sent. */
 object Photos {
     fun dir(c: Context): File = File(c.filesDir, "bills").apply { mkdirs() }
@@ -234,11 +252,11 @@ object Photos {
 
     private fun writeShrunk(src: Bitmap, rotation: Int, out: File) {
         val longSide = max(src.width, src.height)
-        val scale = if (longSide > 1600) 1600f / longSide else 1f
+        val scale = if (longSide > 1280) 1280f / longSide else 1f
         val m = Matrix().apply { postScale(scale, scale); if (rotation != 0) postRotate(rotation.toFloat()) }
         val bmp = Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
         ByteArrayOutputStream().use { bos ->
-            bmp.compress(Bitmap.CompressFormat.JPEG, 82, bos)
+            bmp.compress(Bitmap.CompressFormat.JPEG, 80, bos)
             out.writeBytes(bos.toByteArray())
         }
     }
@@ -326,6 +344,14 @@ object Outbox {
             body.put(field, JSONObject().put("mime", "image/jpeg").put("data", data))
         }
         val res = Api.call(c, "submitClaim", body, timeoutMs = 120000)
+        // keep the sent copies on the phone, so the claim's photos open instantly later
+        for ((key, which) in listOf("photo" to "bill", "odoStartPhoto" to "odoStart", "odoEndPhoto" to "odoEnd")) {
+            val p = o.optString(key)
+            if (p.isBlank()) continue
+            val f = File(p)
+            val sent = File(f.parentFile, f.nameWithoutExtension + "_send.jpg")
+            PhotoCache.put(c, id, which, if (sent.exists()) sent else f)
+        }
         remove(c, id)
         return res
     }

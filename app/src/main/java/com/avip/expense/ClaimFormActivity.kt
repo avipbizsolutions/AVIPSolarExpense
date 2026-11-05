@@ -514,23 +514,11 @@ class ClaimFormActivity : AppCompatActivity() {
             .put("bike", bike).put("bikeNo", if (bike == "Company") bikeNo.text.toString().trim().uppercase() else "")
             .put("odoStartTime", odoStart.time ?: 0L).put("odoEndTime", odoEnd.time ?: 0L)
             .put("odoStartStamp", odoStart.stamp).put("odoEndStamp", odoEnd.stamp)
+        // saved on the phone at once; it goes to the office in the background (no waiting for the upload)
         Outbox.add(this, claim, photo, if (fuel) odoStart.photo else "", if (fuel) odoEnd.photo else "")
-        busy(tr("Claim भेजा जा रहा है…", "Sending claim…"), { Outbox.send(this, claimId) }, onError = { e ->
-            if (e is ApiException && e.network) {
-                Journeys.remove(this, claimId) // it is in the outbox now
-                AlertDialog.Builder(this).setTitle(tr("Phone पर save हो गया", "Saved on the phone"))
-                    .setMessage(tr("अभी internet नहीं है। Claim इस phone में save है और internet आने पर अपने आप चला जाएगा।", "No internet right now. The claim is saved on this phone and will be sent automatically when the internet is back."))
-                    .setPositiveButton("OK") { _, _ -> finish() }.setCancelable(false).show()
-                true
-            } else {
-                // the office refused it (e.g. wrong category): keep the form open to fix it
-                if (!(e is ApiException && e.sessionExpired)) Outbox.remove(this, claimId)
-                false
-            }
-        }) {
-            Journeys.remove(this, claimId)
-            toast(tr("Claim भेज दिया। Approval के बाद आपको दिखेगा।", "Claim sent. You will see it update after approval."))
-            finish()
-        }
+        Journeys.remove(this, claimId)
+        Outbox.flush(this)
+        toast(tr("Claim save हो गया — background में भेजा जा रहा है।", "Claim saved. It is being sent in the background."))
+        finish()
     }
 }

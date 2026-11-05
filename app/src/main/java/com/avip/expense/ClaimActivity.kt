@@ -107,6 +107,7 @@ class ClaimActivity : AppCompatActivity() {
                 val box = vertical { }
                 addView(box, lp())
                 if (local.isNotBlank() && File(local).exists()) showImage(BitmapFactory.decodeFile(local, BitmapFactory.Options().apply { inSampleSize = 2 }), box)
+                else if (PhotoCache.has(this@ClaimActivity, c.id, which)) showImage(PhotoCache.bitmap(this@ClaimActivity, c.id, which), box)
                 else box.addView(pillButton(tr("$label देखें", "View $label".lowercase().replaceFirstChar { it.uppercase() }), Ui.BRAND_LIGHT, Ui.TEXT, heightDp = 44, iconRes = R.drawable.ic_camera) { loadPhoto(which, box) }, lp())
             }
         })
@@ -116,6 +117,7 @@ class ClaimActivity : AppCompatActivity() {
             addView(photoView, lp())
             when {
                 c.localPhoto.isNotBlank() && File(c.localPhoto).exists() -> showImage(BitmapFactory.decodeFile(c.localPhoto, BitmapFactory.Options().apply { inSampleSize = 2 }))
+                c.hasPhoto && PhotoCache.has(this, c.id, "bill") -> showImage(PhotoCache.bitmap(this, c.id, "bill"), photoView)
                 c.hasPhoto -> photoView?.addView(pillButton(tr("Bill photo देखें", "View bill photo"), Ui.BRAND_LIGHT, Ui.TEXT, heightDp = 46, iconRes = R.drawable.ic_camera) { loadPhoto("bill", photoView!!) }, lp())
                 else -> photoView?.addView(note(tr("इस claim के साथ bill photo नहीं है।", "This claim has no bill photo."), Ui.SUN_LIGHT, Ui.SUN_TEXT))
             }
@@ -183,6 +185,7 @@ class ClaimActivity : AppCompatActivity() {
     private fun loadPhoto(which: String, box: LinearLayout) {
         busy(tr("Photo आ रही है…", "Loading photo…"), { Api.call(this, "billPhoto", JSONObject().put("claimId", claim.id).put("which", which), timeoutMs = 90000) }) { r ->
             val bytes = Base64.decode(r.optString("data"), Base64.DEFAULT)
+            PhotoCache.put(this, claim.id, which, bytes)
             showImage(BitmapFactory.decodeByteArray(bytes, 0, bytes.size), box)
         }
     }
