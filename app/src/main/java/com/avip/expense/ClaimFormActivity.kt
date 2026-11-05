@@ -44,6 +44,7 @@ class ClaimFormActivity : AppCompatActivity() {
         lateinit var box: LinearLayout
         lateinit var reading: EditText
         lateinit var hint: android.widget.TextView
+        lateinit var alts: LinearLayout
     }
     private val odoStart = Odo("start", "")
     private val odoEnd = Odo("end", "")
@@ -342,7 +343,8 @@ class ClaimFormActivity : AppCompatActivity() {
                     .putExtra(CameraActivity.EXTRA_DIR, Photos.dir(this@ClaimFormActivity).absolutePath)
                     .putExtra(CameraActivity.EXTRA_TITLE, title)
                     .putExtra(CameraActivity.EXTRA_SUBTITLE, tr("Odometer साफ दिखे", "Keep the odometer clear in view"))
-                    .putExtra(CameraActivity.EXTRA_PREFIX, claimId + "_odo_" + o.key))
+                    .putExtra(CameraActivity.EXTRA_PREFIX, claimId + "_odo_" + o.key)
+                    .putExtra(CameraActivity.EXTRA_ODOMETER, true))
             }, lp(0, WRAP, 1f).margins(context, r = if (journeyMode) 0 else 8))
             if (!journeyMode) addView(pillButton("Gallery", Ui.BRAND_LIGHT, Ui.TEXT, iconRes = R.drawable.ic_grid, heightDp = 44) {
                 odoTarget = o
@@ -354,6 +356,8 @@ class ClaimFormActivity : AppCompatActivity() {
             InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL, R.drawable.ic_edit, 8) { updateFuel() }
         o.hint = text("", 12.5f, Ui.MUTED) { visibility = View.GONE }
         parent.addView(o.hint, lp().margins(this, t = 4))
+        o.alts = horizontal { visibility = View.GONE }
+        parent.addView(o.alts, lp().margins(this, t = 4))
         showOdo(o)
     }
 
@@ -368,22 +372,46 @@ class ClaimFormActivity : AppCompatActivity() {
         o.hint.visibility = View.VISIBLE
         o.hint.setTextColor(Ui.MUTED)
         o.hint.text = tr("Photo से reading पढ़ी जा रही है…", "Reading the number from the photo…")
+        o.alts.removeAllViews(); o.alts.visibility = View.GONE
+        // end reading: should be above the start; start reading: likely close to the last end reading
+        val after = if (o === odoEnd) odoValue(odoStart).takeIf { it > 0 } else null
+        val near = if (o === odoStart) lastOdometer() else null
         Thread {
-            val v = OdometerReader.read(path)
+            val res = OdometerReader.read(path, after, near)
+            val v = res?.value
             runOnUiThread {
                 if (isFinishing || o.photo != path) return@runOnUiThread
                 val typed = o.reading.text.toString().trim()
-                if (v != null && (typed.isBlank() || typed == o.auto?.toString())) {
+                if (res != null && v != null && (typed.isBlank() || typed == o.auto?.toString())) {
                     o.auto = v
                     o.reading.setText(v.toString())
-                    o.hint.setTextColor(Ui.SUN_TEXT)
-                    o.hint.text = tr("Photo से पढ़ा: $v — photo से मिलाकर देखें, गलत हो तो सही करें।", "Read from the photo: $v. Check it against the photo and correct it if needed.")
+                    o.hint.setTextColor(if (res.sure) Ui.SUN_TEXT else Ui.DANGER)
+                    o.hint.text = if (res.sure) tr("Photo से पढ़ा: $v — photo से मिलाकर देखें।", "Read from the photo: $v. Check it against the photo.")
+                        else tr("Photo से पढ़ा: $v — पक्का नहीं, ध्यान से मिलाएँ।", "Read from the photo: $v, not sure. Check it carefully.")
+                    if (res.alternatives.isNotEmpty()) {
+                        o.alts.visibility = View.VISIBLE
+                        o.alts.addView(text(tr("या: ", "Or: "), 13f, Ui.MUTED, bold = true))
+                        res.alternatives.forEach { alt ->
+                            o.alts.addView(pill(alt.toString(), Ui.BRAND_LIGHT, Ui.BRAND_DARK).apply {
+                                setPadding(dp(12), dp(8), dp(12), dp(8))
+                                isClickable = true
+                                setOnClickListener { o.auto = alt; o.reading.setText(alt.toString()); o.alts.visibility = View.GONE; updateFuel() }
+                            }, lp(WRAP, WRAP).margins(this, r = 6))
+                        }
+                    }
                 } else if (v == null) {
                     o.hint.setTextColor(Ui.DANGER)
                     o.hint.text = tr("Photo से reading नहीं पढ़ी जा सकी। Reading खुद लिखें।", "Could not read the number from the photo. Type the reading.")
                 } else o.hint.visibility = View.GONE
             }
         }.start()
+    }
+
+    /** The last end-odometer reading of this person's fuel claims (to help read the next start). */
+    private fun lastOdometer(): Double? {
+        val sameBike = { c: Claim -> if (bike == "Company") c.bike == "Company" && c.bikeNo.equals(bikeNo.text.toString().trim(), true) else c.bike != "Company" }
+        val claims = Outbox.asClaims(this) + Claim.list(Store.load(this, "mine")?.optJSONArray("claims"))
+        return claims.filter { it.isFuel && it.odoEnd > 0 && sameBike(it) }.maxByOrNull { it.date + it.submittedOn }?.odoEnd
     }
 
     private fun showOdo(o: Odo) {

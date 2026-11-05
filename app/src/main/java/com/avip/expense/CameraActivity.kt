@@ -79,6 +79,8 @@ class CameraActivity : AppCompatActivity() {
         const val EXTRA_FILES = "files"
         const val EXTRA_LAT = "lat"
         const val EXTRA_LNG = "lng"
+        /** true = odometer photo: a guide box on screen, and a clean crop of it saved for reading the number. */
+        const val EXTRA_ODOMETER = "odometer"
         private const val PREFS = "camera"
         private const val GALLERY_FOLDER = "AVIP Solar Expense"
     }
@@ -202,6 +204,7 @@ class CameraActivity : AppCompatActivity() {
             visibility = View.GONE
         }
         frame.addView(focusRing, FrameLayout.LayoutParams(dp(60), dp(60)))
+        if (intent.getBooleanExtra(EXTRA_ODOMETER, false)) frame.addView(OdometerGuideView(this), FrameLayout.LayoutParams(MATCH, MATCH))
         zoomLabel = text("1.0x", 22f, Color.WHITE, bold = true) { setShadowLayer(6f, 0f, 0f, Color.BLACK); visibility = View.GONE }
         frame.addView(zoomLabel, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
         root.addView(frame, lp(MATCH, 0, 1f))
@@ -441,10 +444,19 @@ class CameraActivity : AppCompatActivity() {
             try {
                 val small = withContext(Dispatchers.IO) {
                     val photo = prepare(raw, rotation, maxDim)
-                    val map = snap.loc?.let { MapTiles.render(it.latitude, it.longitude, zoom = 16, sizePx = 512) }
-                    Stamp.draw(photo, map, snap.loc, snap.place, snap.time, snap.heading)
                     val name = prefix + "_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(snap.time) + ".jpg"
                     val f = File(dir, name)
+                    // odometer: keep the guide-box area, before the stamp, for reading the number
+                    if (intent.getBooleanExtra(EXTRA_ODOMETER, false)) {
+                        try {
+                            val r = OdometerGuideView.cropRect(photo.width, photo.height)
+                            val crop = Bitmap.createBitmap(photo, r.left, r.top, r.width(), r.height())
+                            File(f.absolutePath + OdometerReader.CROP_SUFFIX).outputStream().use { crop.compress(Bitmap.CompressFormat.JPEG, 94, it) }
+                            if (crop !== photo) crop.recycle()
+                        } catch (_: Exception) {}
+                    }
+                    val map = snap.loc?.let { MapTiles.render(it.latitude, it.longitude, zoom = 16, sizePx = 512) }
+                    Stamp.draw(photo, map, snap.loc, snap.place, snap.time, snap.heading)
                     f.outputStream().use { photo.compress(Bitmap.CompressFormat.JPEG, if (hd) 88 else 82, it) }
                     writeExif(f, snap)
                     copyToGallery(f, snap)
