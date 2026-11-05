@@ -54,6 +54,7 @@ data class Claim(
     val localOdoStart: String = "", val localOdoEnd: String = "",
     val adminOnly: Boolean = false, val adminReason: String = "", val odoDatesDiffer: Boolean = false,
     val odoStartTime: String = "", val odoEndTime: String = "",
+    val bike: String = "", val bikeNo: String = "",
 ) {
     val isFuel get() = Settings.isFuel(category)
 
@@ -71,6 +72,7 @@ data class Claim(
             o.optString("localOdoStart"), o.optString("localOdoEnd"),
             o.optBoolean("adminOnly"), o.optString("adminReason"), o.optBoolean("odoDatesDiffer"),
             o.optString("odoStartTime"), o.optString("odoEndTime"),
+            o.optString("bike"), o.optString("bikeNo"),
         )
 
         fun list(a: JSONArray?): List<Claim> = (0 until (a?.length() ?: 0)).map { from(a!!.getJSONObject(it)) }

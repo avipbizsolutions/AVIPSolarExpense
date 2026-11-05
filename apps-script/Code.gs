@@ -32,6 +32,10 @@ const TZ = 'Asia/Kolkata';
 const BILLS_FOLDER_ID = '1o7ZOSqrC49JbHbHzylFfq98-gdfp21cd'; // "AVIP Solar – Expense Bills"
 const LOG = 'Expense Log';
 const ADV = 'Advances';
+const REQ = 'Advance Requests';
+const RQ = { PENDING: 'Pending', APPROVED: 'Approved', REJECTED: 'Rejected', PAID: 'Paid' };
+const REQ_HEADERS = ['Request ID', 'Requested On', 'Team Member', 'Employee ID', 'Team', 'Amount (₹)', 'Purpose', 'Needed By',
+  'Pay Via', 'Status', 'Approved By', 'Approved On', 'Remarks', 'Paid On', 'Paid By', 'Payment Reference', 'Advance ID'];
 const PAY_VIA = ['Cash', 'UPI', 'Bank Transfer'];
 const PAID_BY = ['Self', 'Advance', 'Company'];
 const ST = { PENDING: 'Pending', APPROVED: 'Approved', REJECTED: 'Rejected', REIMBURSED: 'Reimbursed' };
@@ -102,12 +106,16 @@ const HANDLERS = {
   markPaid: markPaid,
   advances: advances,
   addAdvance: addAdvance,
+  requestAdvance: requestAdvance,
+  advanceRequests: advanceRequests,
+  decideAdvance: decideAdvance,
+  payAdvance: payAdvance,
 };
 
 /** Run once from the editor. */
 function setup() {
   DriveApp.getFolderById(BILLS_FOLDER_ID);
-  table(LOG); table(ADV);
+  table(LOG); table(ADV); reqSheet();
   const p = PropertiesService.getScriptProperties();
   if (!p.getProperty('AUTH_URL') || !p.getProperty('AUTH_KEY')) {
     Logger.log('Add AUTH_URL and AUTH_KEY in Project Settings → Script properties before deploying.');
@@ -122,7 +130,7 @@ function setup() {
 function book() { return SpreadsheetApp.getActiveSpreadsheet(); }
 
 function table(name) {
-  const sh = book().getSheetByName(name);
+  const sh = book().getSheetByName(name) || (name === REQ ? reqSheet() : null);
   if (!sh) throw new Error('Tab missing: ' + name);
   const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(function (h) { return String(h).trim(); });
   return {
@@ -281,6 +289,8 @@ function claimOut(c, withMember) {
     hasOdoStart: clean(c['Start Odometer Photo']) !== '', hasOdoEnd: clean(c['End Odometer Photo']) !== '',
     adminOnly: needsAdmin(c, lim), adminReason: adminReason(c, lim), odoDatesDiffer: odoDatesDiffer(c),
     odoStartTime: iso(c['Start Photo Time']), odoEndTime: iso(c['End Photo Time']),
+    bike: /^company/i.test(clean(c['Bike'])) ? 'Company' : (isFuel(c['Category']) ? 'Own' : ''),
+    bikeNo: clean(c['Bike']).replace(/^company bike\s*[–-]\s*/i, '').replace(/^own bike$/i, ''),
   };
   if (withMember) { o.member = clean(c['Team Member']); o.memberId = clean(c['Employee ID']); o.team = clean(c['Team']); }
   return o;
@@ -347,9 +357,12 @@ function bootstrap(d) {
     const pending = claims.filter(function (c) { return (clean(c['Status']) || ST.PENDING) === ST.PENDING && !owns(u, c); });
     res.counts.toApprove = pending.filter(function (c) { return canDecide(u, c, lim); }).length;
     res.counts.forAdmin = pending.length - res.counts.toApprove;
+    const reqs = rows(REQ).filter(function (r) { return clean(r['Status']) === RQ.PENDING && !owns(u, r); });
+    res.counts.advToApprove = reqs.filter(function (r) { return canDecide(u, r, lim); }).length;
   }
   if (isAccounts(u)) {
     res.counts.toPay = claims.filter(function (c) { return clean(c['Status']) === ST.APPROVED && clean(c['Paid By']) === 'Self'; }).length;
+    res.counts.advToPay = rows(REQ).filter(function (r) { return clean(r['Status']) === RQ.APPROVED; }).length;
     res.members = authUsers_(APP).map(function (p) { return { id: p.id, name: p.name, team: p.team }; });
   }
   return res;
@@ -363,6 +376,7 @@ function home(d) {
   const u = b.user;
   b.claims = sortNewest(claims.filter(function (c) { return owns(u, c); }).map(function (c) { return claimOut(c, false); })).slice(0, 300);
   b.advances = advs.filter(function (a) { return sameName(a['Team Member'], u.name); }).map(advOut).reverse();
+  b.advRequests = rows(REQ).filter(function (r) { return owns(u, r); }).map(function (r) { return reqOut(r); }).reverse().slice(0, 100);
   return b;
 }
 
@@ -385,6 +399,9 @@ function submitClaim(d) {
   const category = clean(c.category, 60);
   if (listColumn(4).indexOf(category) < 0) throw new Error('Choose a category from the list.');
   const fuel = isFuel(category);
+  const companyBike = fuel && clean(c.bike).toLowerCase() === 'company';
+  const bikeNo = clean(c.bikeNo, 20).toUpperCase();
+  if (companyBike && bikeNo.length < 4) throw new Error('Company bike: enter the bike number.');
   let amount = money(c.amount);
   let odoStart = 0, odoEnd = 0, km = num(c.km), rate = 0;
   if (fuel) {
@@ -394,8 +411,13 @@ function submitClaim(d) {
     if (odoEnd <= odoStart) throw new Error('Fuel claim: end odometer reading must be more than the start reading.');
     km = Math.round((odoEnd - odoStart) * 10) / 10;
     if (km > MAX_TRIP_KM) throw new Error('Fuel claim: ' + km + ' km looks wrong. Check the odometer readings.');
-    rate = settings().fuelRate;
-    amount = money(km * rate);
+    if (companyBike) {
+      // company bike: the petrol bill, as a lump sum (cost per km is only shown)
+      if (!d.photo) throw new Error('Company bike: add the photo of the petrol bill.');
+    } else {
+      rate = settings().fuelRate;
+      amount = money(km * rate);
+    }
   }
   if (!(amount > 0) || amount > 500000) throw new Error('Enter the amount in rupees.');
   const paidBy = clean(c.paidBy);
@@ -442,6 +464,7 @@ function submitClaim(d) {
       'Rate per KM (₹)': fuel ? rate : '',
       'Start Photo Time': fuel ? photoTime(c.odoStartTime) : '',
       'End Photo Time': fuel ? photoTime(c.odoEndTime) : '',
+      'Bike': fuel ? (companyBike ? 'Company bike – ' + bikeNo : 'Own bike') : '',
     });
     SpreadsheetApp.flush();
     const saved = rows(LOG).filter(function (r) { return r._row === row; })[0];
@@ -630,17 +653,178 @@ function addAdvance(d) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    const advs = rows(ADV);
-    let n = 0;
-    advs.forEach(function (a) { const m = clean(a['Advance ID']).match(/^ADV-(\d+)$/); if (m) n = Math.max(n, Number(m[1])); });
-    const id = 'ADV-' + ('000' + (n + 1)).slice(-4);
-    append(ADV, {
-      'Advance ID': id, 'Date': d.date ? toDate(d.date) : new Date(new Date().setHours(0, 0, 0, 0)),
-      'Team Member': person.name, 'Amount (₹)': amount, 'Paid Via': via,
-      'Payment Reference': clean(d.ref) ? "'" + clean(d.ref, 60) : '', 'Purpose': clean(d.purpose, 200),
-      'Given By': u.name, 'Remarks': '',
+    return { id: insertAdvance_(person.name, amount, via, d.ref, d.purpose, u.name, d.date) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Adds one row to the Advances tab (call inside the script lock); returns its ADV- id. */
+function insertAdvance_(name, amount, via, ref, purpose, givenBy, date) {
+  const advs = rows(ADV);
+  let n = 0;
+  advs.forEach(function (a) { const m = clean(a['Advance ID']).match(/^ADV-(\d+)$/); if (m) n = Math.max(n, Number(m[1])); });
+  const id = 'ADV-' + ('000' + (n + 1)).slice(-4);
+  append(ADV, {
+    'Advance ID': id, 'Date': date ? toDate(date) : new Date(new Date().setHours(0, 0, 0, 0)),
+    'Team Member': name, 'Amount (₹)': amount, 'Paid Via': via,
+    'Payment Reference': clean(ref) ? "'" + clean(ref, 60) : '', 'Purpose': clean(purpose, 200),
+    'Given By': givenBy, 'Remarks': '',
+  });
+  return id;
+}
+
+// ------------------------------------------------------------------ advance requests
+
+/** The "Advance Requests" tab, made on first use. */
+function reqSheet() {
+  const b = book();
+  let sh = b.getSheetByName(REQ);
+  if (!sh) {
+    sh = b.insertSheet(REQ);
+    sh.getRange(1, 1, 1, REQ_HEADERS.length).setValues([REQ_HEADERS]).setFontWeight('bold').setBackground('#6B3FA0').setFontColor('#FFFFFF');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function reqOut(r, u, lim) {
+  const o = {
+    id: clean(r['Request ID']), requestedOn: iso(r['Requested On']), member: clean(r['Team Member']), memberId: clean(r['Employee ID']),
+    team: clean(r['Team']), amount: money(r['Amount (₹)']), purpose: clean(r['Purpose']), neededBy: isoDay(r['Needed By']),
+    payVia: clean(r['Pay Via']), status: clean(r['Status']) || RQ.PENDING, approvedBy: clean(r['Approved By']),
+    approvedOn: iso(r['Approved On']), remarks: clean(r['Remarks']), paidOn: isoDay(r['Paid On']), paidBy: clean(r['Paid By']),
+    paymentRef: clean(r['Payment Reference']), advanceId: clean(r['Advance ID']),
+  };
+  if (u) {
+    o.adminOnly = needsAdmin(r, lim);
+    o.adminReason = adminReason(r, lim);
+    o.canDecide = o.status === RQ.PENDING && !owns(u, r) && canDecide(u, r, lim);
+  }
+  return o;
+}
+
+/**
+ * A person's earlier advances, oldest first, each marked Open or Settled: the amount adjusted
+ * in approved "Advance" claims is set against the oldest advances first.
+ */
+function advHistory(name, id, claims, advs) {
+  const b = balanceFor(name, id, claims, advs);
+  let used = b.advanceAdjusted;
+  const list = advs.filter(function (a) { return sameName(a['Team Member'], name); }).map(function (a) {
+    const amt = money(a['Amount (₹)']);
+    const take = Math.min(amt, Math.max(0, used));
+    used -= take;
+    const o = advOut(a);
+    o.used = money(take); o.left = money(amt - take); o.settled = o.left <= 0;
+    return o;
+  });
+  return { balance: b, advances: list.reverse().slice(0, 20), openCount: list.filter(function (a) { return !a.settled; }).length };
+}
+
+function requestAdvance(d) {
+  const u = me(d);
+  const r = d.request || {};
+  const id = clean(r.id, 40);
+  if (!/^ARQ-[0-9A-Za-z-]+$/.test(id)) throw new Error('Request id is missing. Update the app.');
+  const amount = money(r.amount);
+  if (!(amount > 0) || amount > 500000) throw new Error('Enter the advance amount.');
+  const purpose = clean(r.purpose, 300);
+  if (purpose.length < 3) throw new Error('Write what the advance is for.');
+  const via = clean(r.payVia);
+  if (PAY_VIA.indexOf(via) < 0) throw new Error('Choose Cash, UPI or Bank Transfer.');
+  let needed = '';
+  const m = clean(r.neededBy).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) needed = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    reqSheet();
+    const existing = rows(REQ).filter(function (x) { return clean(x['Request ID']) === id; })[0];
+    if (existing) return { request: reqOut(existing), duplicate: true };
+    const row = append(REQ, {
+      'Request ID': id, 'Requested On': now(), 'Team Member': u.name, 'Employee ID': u.id, 'Team': clean(u.team),
+      'Amount (₹)': amount, 'Purpose': purpose, 'Needed By': needed, 'Pay Via': via, 'Status': RQ.PENDING,
     });
-    return { id: id };
+    return { request: reqOut(rows(REQ).filter(function (x) { return x._row === row; })[0] || { 'Request ID': id }) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Own requests; with team=true (approvers / accounts) everyone's, with each person's earlier advances. */
+function advanceRequests(d) {
+  const u = me(d);
+  const lim = settings().approvalLimit;
+  const reqs = rows(REQ);
+  if (d.team !== true || !seesAll(u)) {
+    return { requests: reqs.filter(function (r) { return owns(u, r); }).map(function (r) { return reqOut(r, u, lim); }).reverse() };
+  }
+  const claims = rows(LOG);
+  const advs = rows(ADV);
+  const list = reqs.map(function (r) { return reqOut(r, u, lim); }).reverse().slice(0, 300);
+  const history = {};
+  list.forEach(function (o) {
+    const key = o.memberId || o.member;
+    if (!history[key]) {
+      const h = advHistory(o.member, o.memberId, claims, advs);
+      h.requests = reqs.filter(function (r) { return (clean(r['Employee ID']) || clean(r['Team Member'])) === key; })
+        .map(function (r) { return reqOut(r); }).reverse().slice(0, 10);
+      history[key] = h;
+    }
+  });
+  return { requests: list, history: history, approvalLimit: lim };
+}
+
+function decideAdvance(d) {
+  const u = me(d);
+  if (!canApprove(u)) throw new Error('Only approvers can approve advances.');
+  const approve = d.approve === true;
+  const note = clean(d.note, 200);
+  if (!approve && note.length < 3) throw new Error('Write why the advance is rejected.');
+  const ids = Array.isArray(d.requestIds) ? d.requestIds : [d.requestId];
+  const lim = settings().approvalLimit;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const all = rows(REQ);
+    let done = 0;
+    const skipped = [];
+    ids.forEach(function (id) {
+      const r = all.filter(function (x) { return clean(x['Request ID']) === clean(id); })[0];
+      if (!r) { skipped.push(id + ': not found'); return; }
+      if (owns(u, r)) { skipped.push(id + ': you cannot approve your own advance'); return; }
+      if ((clean(r['Status']) || RQ.PENDING) !== RQ.PENDING) { skipped.push(id + ': already ' + clean(r['Status']).toLowerCase()); return; }
+      if (!canDecide(u, r, lim)) { skipped.push(id + ': ' + adminReason(r, lim) + ', only Atul or Rahul can approve'); return; }
+      setFields(REQ, r._row, { 'Status': approve ? RQ.APPROVED : RQ.REJECTED, 'Approved By': u.name, 'Approved On': now(), 'Remarks': note });
+      done++;
+    });
+    return { done: done, skipped: skipped };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Accounts pays an approved request: it becomes an advance (Advances tab) and the request is Paid. */
+function payAdvance(d) {
+  const u = me(d);
+  if (!isAccounts(u)) throw new Error('Only accounts can pay advances.');
+  const via = clean(d.via);
+  if (PAY_VIA.indexOf(via) < 0) throw new Error('Choose Cash, UPI or Bank Transfer.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const r = rows(REQ).filter(function (x) { return clean(x['Request ID']) === clean(d.requestId); })[0];
+    if (!r) throw new Error('Advance request not found.');
+    if (clean(r['Status']) === RQ.PAID) return { advanceId: clean(r['Advance ID']), duplicate: true };
+    if (clean(r['Status']) !== RQ.APPROVED) throw new Error('This advance is not approved yet.');
+    const advId = insertAdvance_(clean(r['Team Member']), money(r['Amount (₹)']), via, d.ref,
+      clean(r['Purpose']) + ' (' + clean(r['Request ID']) + ')', u.name, d.date);
+    setFields(REQ, r._row, {
+      'Status': RQ.PAID, 'Paid On': d.date ? toDate(d.date) : new Date(new Date().setHours(0, 0, 0, 0)), 'Paid By': u.name,
+      'Payment Reference': clean(d.ref) ? "'" + clean(d.ref, 60) : '', 'Pay Via': via, 'Advance ID': advId,
+    });
+    return { advanceId: advId };
   } finally {
     lock.releaseLock();
   }

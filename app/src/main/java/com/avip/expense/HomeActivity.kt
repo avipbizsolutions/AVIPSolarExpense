@@ -159,7 +159,30 @@ class HomeActivity : AppCompatActivity() {
             }, lp().margins(context, t = 16))
             setOnClickListener { startActivity(Intent(this@HomeActivity, AdvancesActivity::class.java)) }
         }, lp().margins(this, b = 6))
-        body.addView(text(tr("Advance की पूरी list देखने के लिए ऊपर tap करें", "Tap above to see all your advances"), 12f, Ui.MUTED) { gravity = Gravity.CENTER }, lp().margins(this, b = 12))
+        body.addView(horizontal {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(text(tr("पूरी list के लिए ऊपर tap करें", "Tap above for all your advances"), 12f, Ui.MUTED), lp(0, WRAP, 1f))
+            addView(pillButton(tr("Advance माँगें", "Request advance"), Ui.BRAND_LIGHT, Ui.BRAND_DARK, heightDp = 40, iconRes = R.drawable.ic_plus) {
+                startActivity(Intent(this@HomeActivity, AdvanceRequestsActivity::class.java).putExtra(AdvanceRequestsActivity.EXTRA_MODE, AdvanceRequestsActivity.MODE_NEW))
+            })
+        }, lp().margins(this, b = 8))
+        // my advance requests that are still open
+        AdvRequest.list(mine?.optJSONArray("advRequests")).filter { it.status == AdvRequest.PENDING || it.status == AdvRequest.APPROVED }.forEach { r ->
+            body.addView(card(12) {
+                addView(horizontal {
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(vertical {
+                        addView(text(tr("Advance request ", "Advance request ") + Fmt.rupees(r.amount), 14.5f, Ui.TEXT, bold = true))
+                        addView(text(r.purpose, 12.5f, Ui.MUTED))
+                    }, lp(0, WRAP, 1f))
+                    addView(reqPill(r.status))
+                })
+                isClickable = true
+                foreground = context.ripple()
+                setOnClickListener { startActivity(Intent(this@HomeActivity, AdvancesActivity::class.java)) }
+            }, lp().margins(this, b = 8))
+        }
+        body.addView(View(this), lp(MATCH, dp(4)))
 
         // ---- role tiles
         val counts = boot?.optJSONObject("counts") ?: JSONObject()
@@ -175,6 +198,15 @@ class HomeActivity : AppCompatActivity() {
                 startActivity(Intent(this, AdvancesActivity::class.java).putExtra(AdvancesActivity.EXTRA_TEAM, true))
             }, lp(0, WRAP, 1f))
             body.addView(row, lp().margins(this, b = 8))
+            val advRow = horizontal { }
+            if (u.canApprove) advRow.addView(tile(tr("Advance Approve करें", "Approve advances"), counts.optInt("advToApprove"), R.drawable.ic_check, Ui.BRAND) {
+                startActivity(Intent(this, AdvanceRequestsActivity::class.java).putExtra(AdvanceRequestsActivity.EXTRA_MODE, AdvanceRequestsActivity.MODE_APPROVE))
+            }, lp(0, WRAP, 1f).margins(this, r = 8))
+            if (u.isAccounts) advRow.addView(tile(tr("Advance Payment करें", "Pay advances"), counts.optInt("advToPay"), R.drawable.ic_rupee, Ui.GREEN) {
+                startActivity(Intent(this, AdvanceRequestsActivity::class.java).putExtra(AdvanceRequestsActivity.EXTRA_MODE, AdvanceRequestsActivity.MODE_PAY))
+            }, lp(0, WRAP, 1f))
+            if (!u.isAccounts) advRow.addView(View(this), lp(0, WRAP, 1f))
+            body.addView(advRow, lp().margins(this, b = 8))
             body.addView(text(tr("Team के सारे Claims", "All team claims"), 14f, Ui.BLUE, bold = true) {
                 setPadding(dp(4), dp(8), dp(4), dp(8))
                 setOnClickListener {

@@ -42,6 +42,7 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity android:name=".ClaimActivity" android:exported="false" />
+        <activity android:name=".AdvanceRequestsActivity" android:exported="false" />
         <activity android:name=".TeamClaimsActivity" android:exported="false" />
         <activity
             android:name=".AdvancesActivity"

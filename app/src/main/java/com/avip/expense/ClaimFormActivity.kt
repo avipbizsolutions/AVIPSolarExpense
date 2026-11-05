@@ -49,6 +49,13 @@ class ClaimFormActivity : AppCompatActivity() {
     private val odoEnd = Odo("end", "")
     private var odoTarget: Odo? = null
     private var fuelRate = Settings.DEFAULT_FUEL_RATE
+    /** Fuel claim: "Own" bike (₹ per km) or "Company" bike (petrol bill as a lump sum). */
+    private var bike = "Own"
+    private lateinit var bikeChips: LinearLayout
+    private lateinit var companyBox: View
+    private lateinit var bikeNo: EditText
+    private lateinit var petrol: EditText
+    private lateinit var fuelHint: android.widget.TextView
     private lateinit var fuelBox: View
     private lateinit var fuelSum: android.widget.TextView
     private lateinit var amountBox: View
@@ -148,6 +155,18 @@ class ClaimFormActivity : AppCompatActivity() {
         fuelBox = section(tr("Odometer (Fuel / Petrol)", "Odometer (fuel / petrol)"),
             tr("जाने से पहले और लौटने पर odometer की GPS photo लें। KM और Amount अपने आप बनेगा: ₹${Fmt.km(fuelRate)} प्रति km।",
                "Take a GPS photo of the odometer before you start and when you are back. KM and amount are worked out automatically at ₹${Fmt.km(fuelRate)} per km.")) {
+            addView(text(tr("किसकी bike?", "Whose bike?"), 15f, Ui.TEXT, bold = true), lp().margins(context, t = 4, b = 6))
+            bikeChips = vertical { }
+            addView(bikeChips, lp())
+            fuelHint = text("", 12.5f, Ui.MUTED)
+            addView(fuelHint, lp().margins(context, t = 4))
+            companyBox = vertical {
+                bikeNo = field(this, tr("कौन सी bike (number)", "Which bike (number)"), "", tr("जैसे BR01 AB 4521", "e.g. BR01 AB 4521"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS, R.drawable.ic_edit, 20) {}
+                petrol = field(this, tr("Petrol भरवाया (₹) — bill जितना", "Petrol filled (₹), as on the bill"), "", tr("जैसे 300", "e.g. 300"), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL, R.drawable.ic_rupee, 9) { updateFuel() }
+                petrol.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 20f)
+                addView(text(tr("नीचे \"Bill photo\" में petrol bill की photo लगाना ज़रूरी है।", "Adding the petrol bill under \"Bill photo\" below is required."), 12.5f, Ui.SUN_TEXT, bold = true), lp().margins(context, t = 6))
+            }.apply { visibility = View.GONE }
+            addView(companyBox, lp())
             odoSlot(this, odoStart, tr("शुरू का Odometer", "Start odometer"))
             odoSlot(this, odoEnd, tr("आखिर का Odometer", "End odometer"))
             dateNote = text("", 13f, Ui.SUN_TEXT) { visibility = View.GONE }
@@ -162,6 +181,7 @@ class ClaimFormActivity : AppCompatActivity() {
             addView(text(tr("लौटने पर Home पर यह Draft खोलें, आखिर के odometer की photo लगाएँ और Claim भेजें।", "When you are back, open this draft on the home screen, add the end odometer photo and send the claim."), 12.5f, Ui.MUTED), lp().margins(context, t = 6))
         }.apply { visibility = View.GONE }
         body.addView(fuelBox)
+        showBike()
 
         body.addView(section(tr("पैसे किसने दिए", "Who paid")) {
             addView(chips(listOf(tr("अपने पैसे से", "Own money"), tr("Advance से", "From advance"), tr("Company ने दिया", "Paid by company")), tr("अपने पैसे से", "Own money")) { pick ->
@@ -206,8 +226,23 @@ class ClaimFormActivity : AppCompatActivity() {
             odoStart.time = j.optLong("startTime", 0L).takeIf { it > 0 }
             odoStart.reading.setText(j.optString("startReading"))
             showOdo(odoStart)
+            bike = j.optString("bike", "Own").ifBlank { "Own" }
+            bikeNo.setText(j.optString("bikeNo"))
+            showBike()
         }
         updateFuel()
+    }
+
+    private fun showBike() {
+        bikeChips.removeAllViews()
+        bikeChips.addView(chips(listOf(tr("अपनी bike", "Own bike"), tr("Company bike", "Company bike")),
+            if (bike == "Company") tr("Company bike", "Company bike") else tr("अपनी bike", "Own bike")) { pick ->
+            bike = if (pick == tr("Company bike", "Company bike")) "Company" else "Own"
+            showBike(); updateFuel()
+        })
+        companyBox.visibility = if (bike == "Company") View.VISIBLE else View.GONE
+        fuelHint.text = if (bike == "Company") tr("Company bike: petrol bill जितना पैसा मिलेगा (₹/km नहीं)। Km और ₹/km record के लिए दिखेगा।", "Company bike: you get the petrol bill amount, not a per-km rate. Km and cost per km are shown for the record.")
+            else tr("अपनी bike: ₹${Fmt.km(fuelRate)} प्रति km मिलेगा। Bill की ज़रूरत नहीं।", "Own bike: ₹${Fmt.km(fuelRate)} per km. No bill needed.")
     }
 
     /** Saves the journey so far (start photo and reading) on the phone, as a draft. */
@@ -217,6 +252,7 @@ class ClaimFormActivity : AppCompatActivity() {
         val j = (journey ?: JSONObject()).put("id", claimId).put("date", date)
             .put("startPhoto", odoStart.photo).put("startTime", odoStart.time ?: 0L).put("startReading", odoStart.reading.text.toString().trim())
             .put("description", desc.text.toString().trim()).put("site", site.text.toString().trim()).put("district", district.text.toString().trim())
+            .put("bike", bike).put("bikeNo", bikeNo.text.toString().trim())
             .put("savedAt", System.currentTimeMillis())
         Journeys.save(this, j)
         toast(tr("Journey draft save हो गया। लौटने पर Home से खोलें।", "Journey saved as a draft. Open it from the home screen when you are back."))
@@ -366,13 +402,18 @@ class ClaimFormActivity : AppCompatActivity() {
 
     private fun odoValue(o: Odo) = o.reading.text.toString().trim().toDoubleOrNull() ?: 0.0
 
-    /** km and ₹, or null while the readings are incomplete or wrong. */
+    private fun petrolAmount() = if (::petrol.isInitialized) petrol.text.toString().trim().toDoubleOrNull() ?: 0.0 else 0.0
+
+    /** km and ₹ (own bike: km × rate; company bike: the petrol bill), or null while incomplete or wrong. */
     private fun fuelCalc(): Pair<Double, Double>? {
         val a = odoValue(odoStart); val b = odoValue(odoEnd)
         if (a <= 0 || b <= 0 || b <= a) return null
         val km = Math.round((b - a) * 10) / 10.0
+        if (bike == "Company") { val p = petrolAmount(); return if (p > 0) km to p else null }
         return km to Math.round(km * fuelRate * 100) / 100.0
     }
+
+    private fun perKm(km: Double, amount: Double) = if (km > 0) "₹" + String.format(Locale.US, "%.2f", amount / km) + "/km" else "" 
 
     private fun updateFuel() {
         if (!::fuelSum.isInitialized) return
@@ -386,7 +427,9 @@ class ClaimFormActivity : AppCompatActivity() {
         val calc = fuelCalc()
         fuelSum.setTextColor(if (calc == null && a > 0 && b > 0) Ui.DANGER else Ui.TEXT)
         fuelSum.text = when {
+            calc != null && bike == "Company" -> "${Fmt.km(calc.first)} km · ${Fmt.rupees(calc.second)} · ${perKm(calc.first, calc.second)}"
             calc != null -> "${Fmt.km(calc.first)} km × ₹${Fmt.km(fuelRate)} = ${Fmt.rupees(calc.second)}"
+            bike == "Company" && a > 0 && b > a -> tr("Petrol का amount डालें (bill जितना)", "Enter the petrol amount (as on the bill)")
             a > 0 && b > 0 -> tr("आखिर की reading शुरू से ज़्यादा होनी चाहिए।", "End reading must be more than the start reading.")
             else -> tr("दोनों readings डालें: KM × ₹${Fmt.km(fuelRate)}", "Enter both readings: km × ₹${Fmt.km(fuelRate)}")
         }
@@ -397,12 +440,19 @@ class ClaimFormActivity : AppCompatActivity() {
         if (odoEnd.photo.isBlank()) { toast(tr("आखिर के odometer की photo लगाएँ", "Add the end odometer photo")); return }
         if (odoValue(odoStart) <= 0) { odoStart.reading.error = tr("Reading डालें", "Enter the reading"); return }
         if (odoValue(odoEnd) <= 0) { odoEnd.reading.error = tr("Reading डालें", "Enter the reading"); return }
+        if (bike == "Company") {
+            if (bikeNo.text.toString().trim().length < 4) { bikeNo.error = tr("Bike number डालें", "Enter the bike number"); return }
+            if (petrolAmount() <= 0) { petrol.error = tr("Petrol का amount डालें", "Enter the petrol amount"); return }
+            if (photo.isBlank()) { toast(tr("Company bike: petrol bill की photo लगाएँ", "Company bike: add the petrol bill photo")); return }
+        }
         val calc = fuelCalc() ?: run { odoEnd.reading.error = tr("शुरू से ज़्यादा होनी चाहिए", "Must be more than the start"); return }
         if (calc.first > 1500) { odoEnd.reading.error = tr("${Fmt.km(calc.first)} km सही नहीं लगता", "${Fmt.km(calc.first)} km looks wrong"); return }
         if (desc.text.toString().trim().length < 3) { desc.error = tr("किस काम के लिए था, लिखें", "Write what it was for"); return }
         if (paymentMode.isBlank()) { toast(tr("Payment कैसे किया, चुनें", "Choose how it was paid")); return }
         confirm(tr("Fuel claim भेजें?", "Send fuel claim?"),
-            "${Fmt.km(odoValue(odoStart))} → ${Fmt.km(odoValue(odoEnd))}\n${Fmt.km(calc.first)} km × ₹${Fmt.km(fuelRate)} = ${Fmt.rupees(calc.second)}",
+            "${Fmt.km(odoValue(odoStart))} → ${Fmt.km(odoValue(odoEnd))}\n" + (if (bike == "Company")
+                "Company bike ${bikeNo.text.toString().trim().uppercase()}\n${Fmt.km(calc.first)} km · ${Fmt.rupees(calc.second)} · ${perKm(calc.first, calc.second)}"
+                else "${Fmt.km(calc.first)} km × ₹${Fmt.km(fuelRate)} = ${Fmt.rupees(calc.second)}"),
             tr("भेजें", "Send")) { save(calc.second) }
     }
 
@@ -415,7 +465,8 @@ class ClaimFormActivity : AppCompatActivity() {
             .put("district", district.text.toString().trim())
             .put("km", if (fuel) (fuelCalc()?.first ?: 0.0) else if (kmBox.visibility == View.VISIBLE) km.text.toString().toDoubleOrNull() ?: 0.0 else 0.0)
             .put("submittedOn", Fmt.today())
-        if (fuel) claim.put("odoStart", odoValue(odoStart)).put("odoEnd", odoValue(odoEnd)).put("rate", fuelRate)
+        if (fuel) claim.put("odoStart", odoValue(odoStart)).put("odoEnd", odoValue(odoEnd)).put("rate", if (bike == "Company") 0.0 else fuelRate)
+            .put("bike", bike).put("bikeNo", if (bike == "Company") bikeNo.text.toString().trim().uppercase() else "")
             .put("odoStartTime", odoStart.time ?: 0L).put("odoEndTime", odoEnd.time ?: 0L)
         Outbox.add(this, claim, photo, if (fuel) odoStart.photo else "", if (fuel) odoEnd.photo else "")
         busy(tr("Claim भेजा जा रहा है…", "Sending claim…"), { Outbox.send(this, claimId) }, onError = { e ->

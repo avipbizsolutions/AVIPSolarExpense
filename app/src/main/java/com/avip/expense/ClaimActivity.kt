@@ -73,11 +73,15 @@ class ClaimActivity : AppCompatActivity() {
             if (c.km > 0) addView(kv("KM", Fmt.km(c.km)))
             if (c.isFuel && c.odoEnd > 0) {
                 addView(kv(tr("Odometer", "Odometer"), Fmt.km(c.odoStart) + " → " + Fmt.km(c.odoEnd)))
+                if (c.bike == "Company") addView(kv("Bike", "Company bike" + if (c.bikeNo.isNotBlank()) " · " + c.bikeNo else ""))
+                else addView(kv("Bike", tr("अपनी bike", "Own bike")))
                 val rate = if (c.rate > 0) c.rate else Settings.fuelRate(this@ClaimActivity)
                 if (c.odoStartTime.isNotBlank() || c.odoEndTime.isNotBlank())
                     addView(kv(tr("Photo का समय", "Photo times"), c.odoStartTime.ifBlank { "?" } + " → " + c.odoEndTime.ifBlank { "?" }))
                 if (c.odoDatesDiffer) addView(text(tr("⚠ Photos अलग-अलग तारीख की (या तारीख नहीं) — Management approval", "⚠ Photos on different dates (or no date): management approval"), 13f, Ui.DANGER, bold = true), lp().margins(context, t = 4))
-                addView(kv(tr("हिसाब", "Worked out"), "${Fmt.km(c.km)} km × ₹${Fmt.km(rate)} = ${Fmt.rupees(c.amount)}", bold = true))
+                if (c.bike == "Company") addView(kv(tr("हिसाब", "Worked out"), tr("Petrol bill ", "Petrol bill ") + Fmt.rupees(c.amount) + " · " + Fmt.km(c.km) + " km · ₹" +
+                    String.format(java.util.Locale.US, "%.2f", if (c.km > 0) c.amount / c.km else 0.0) + "/km", bold = true))
+                else addView(kv(tr("हिसाब", "Worked out"), "${Fmt.km(c.km)} km × ₹${Fmt.km(rate)} = ${Fmt.rupees(c.amount)}", bold = true))
             }
             if (c.submittedOn.isNotBlank()) addView(kv(tr("भेजा", "Sent"), c.submittedOn))
         })

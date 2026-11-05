@@ -32,7 +32,10 @@ class AdvancesActivity : AppCompatActivity() {
         Lang.load(this)
         val u = Session.user(this) ?: run { finish(); return }
         team = intent.getBooleanExtra(EXTRA_TEAM, false) && u.seesTeam
-        val bottom = if (team && u.isAccounts) pillButton(tr("Advance दें", "Give advance"), Ui.SUN, Ui.TEXT, iconRes = R.drawable.ic_plus) { giveAdvance() } else null
+        val bottom = if (team && u.isAccounts) pillButton(tr("Advance दें", "Give advance"), Ui.SUN, Ui.TEXT, iconRes = R.drawable.ic_plus) { giveAdvance() }
+            else if (!team) pillButton(tr("Advance माँगें", "Request advance"), Ui.SUN, Ui.TEXT, iconRes = R.drawable.ic_plus) {
+                startActivity(android.content.Intent(this, AdvanceRequestsActivity::class.java).putExtra(AdvanceRequestsActivity.EXTRA_MODE, AdvanceRequestsActivity.MODE_NEW))
+            } else null
         body = screen(if (team) tr("Team के Advance", "Team advances") else tr("मेरे Advance", "My advances"), if (team) tr("हर व्यक्ति का balance", "Balance of each person") else u.name,
             right = listOf(barButton(R.drawable.ic_refresh) { load() }), bottom = bottom)
         load()
@@ -103,6 +106,25 @@ class AdvancesActivity : AppCompatActivity() {
                 addView(kv(tr("आपके पास बाकी", "Balance with you"), Fmt.rupees(b.advanceBalance), bold = true))
                 if (b.advancePending > 0) addView(kv(tr("Advance वाले claims, approval बाकी", "Advance claims awaiting approval"), Fmt.rupees(b.advancePending)))
             })
+            val reqs = AdvRequest.list(Store.load(this, "mine")?.optJSONArray("advRequests"))
+            if (reqs.isNotEmpty()) body.addView(section(tr("मेरी Advance requests", "My advance requests")) {
+                reqs.take(10).forEach { r ->
+                    addView(vertical {
+                        setPadding(0, dp(8), 0, dp(4))
+                        addView(horizontal {
+                            gravity = Gravity.CENTER_VERTICAL
+                            addView(text(Fmt.rupees(r.amount) + " · " + r.requestedOn.take(10).let { Fmt.date(it) }, 14.5f, Ui.TEXT, bold = true), lp(0, WRAP, 1f))
+                            addView(reqPill(r.status))
+                        })
+                        addView(text(r.purpose + when (r.status) {
+                            AdvRequest.APPROVED -> tr(" · Approved by ${r.approvedBy}, Accounts से payment बाकी", " · approved by ${r.approvedBy}, payment from Accounts pending")
+                            AdvRequest.REJECTED -> " · " + r.remarks
+                            AdvRequest.PAID -> " · " + r.payVia + (if (r.paymentRef.isNotBlank()) " " + r.paymentRef else "") + " · " + r.advanceId
+                            else -> ""
+                        }, 12.5f, Ui.MUTED))
+                    })
+                }
+            }, lp().margins(this, t = 12))
             body.addView(note(tr("Advance से किया खर्च \"नया Claim\" में \"Advance से\" चुनकर डालें। Approve होते ही यहाँ से कट जाएगा। बचा हुआ Advance Office को लौटाना या अगले खर्च में adjust करना है।", "For spending from an advance, add a \"New claim\" and choose \"From advance\". It is deducted here once approved. Any advance left over is returned to the office or adjusted against later expenses.")))
         }
 
