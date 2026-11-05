@@ -117,7 +117,7 @@ class ClaimActivity : AppCompatActivity() {
             addView(photoView, lp())
             when {
                 c.localPhoto.isNotBlank() && File(c.localPhoto).exists() -> showImage(BitmapFactory.decodeFile(c.localPhoto, BitmapFactory.Options().apply { inSampleSize = 2 }))
-                c.hasPhoto && PhotoCache.has(this, c.id, "bill") -> showImage(PhotoCache.bitmap(this, c.id, "bill"), photoView)
+                c.hasPhoto && PhotoCache.has(this@ClaimActivity, c.id, "bill") -> showImage(PhotoCache.bitmap(this@ClaimActivity, c.id, "bill"), photoView)
                 c.hasPhoto -> photoView?.addView(pillButton(tr("Bill photo देखें", "View bill photo"), Ui.BRAND_LIGHT, Ui.TEXT, heightDp = 46, iconRes = R.drawable.ic_camera) { loadPhoto("bill", photoView!!) }, lp())
                 else -> photoView?.addView(note(tr("इस claim के साथ bill photo नहीं है।", "This claim has no bill photo."), Ui.SUN_LIGHT, Ui.SUN_TEXT))
             }
