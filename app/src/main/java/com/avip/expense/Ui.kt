@@ -344,3 +344,21 @@ fun Activity.langToggle(onDark: Boolean = true): View = text(if (Lang.english) "
         recreate()
     }
 }
+
+
+/** A highlighted line that scrolls sideways on its own (for an important rule). */
+fun Context.marquee(message: String, bg: Int = Ui.SUN_LIGHT, fg: Int = Ui.SUN_TEXT): TextView = TextView(this).apply {
+    text = "$message          $message"
+    setTextSize(TypedValue.COMPLEX_UNIT_SP, 14.5f)
+    setTextColor(fg)
+    typeface = Typeface.DEFAULT_BOLD
+    isSingleLine = true
+    ellipsize = android.text.TextUtils.TruncateAt.MARQUEE
+    marqueeRepeatLimit = -1
+    setHorizontallyScrolling(true)
+    isFocusable = false
+    background = rounded(bg, dpf(12f), Ui.SUN, dp(1))
+    setPadding(dp(12), dp(10), dp(12), dp(10))
+    isSelected = true // starts the scrolling
+    contentDescription = message
+}

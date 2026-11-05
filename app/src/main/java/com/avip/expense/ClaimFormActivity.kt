@@ -198,7 +198,9 @@ class ClaimFormActivity : AppCompatActivity() {
             addView(chips(modes, "") { paymentMode = it }, lp())
         })
 
-        body.addView(section("Bill", tr("Bill की साफ photo लगाएँ। ₹500 से ऊपर के claim में bill ज़रूरी है। (Fuel claim में odometer photos ही काफी हैं।)", "Add a clear photo of the bill. A bill is required for claims above ₹500. (For fuel claims the odometer photos are enough.)")) {
+        body.addView(section("Bill", tr("Bill की साफ photo लगाएँ।", "Add a clear photo of the bill.")) {
+            addView(marquee(tr("⚠ ₹500 से ऊपर के हर खर्च के लिए bill की photo ज़रूरी है — बिना bill के claim reject हो सकता है।   ⚠ Fuel / Petrol (अपनी bike) में odometer की GPS photos ही काफी हैं।   ⚠ Company bike: petrol bill ज़रूरी है।",
+                "⚠ A bill photo is required for every expense above ₹500. Claims without a bill may be rejected.   ⚠ Fuel / petrol (own bike): the odometer GPS photos are enough.   ⚠ Company bike: the petrol bill is required.")), lp().margins(context, b = 10))
             photoBox = vertical { }
             addView(photoBox, lp())
             addView(horizontal {
