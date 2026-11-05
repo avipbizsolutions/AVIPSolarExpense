@@ -31,6 +31,18 @@ class HomeActivity : AppCompatActivity() {
         Lang.load(this)
         user = Session.user(this) ?: run { toLogin(); return }
         build()
+        setupAlerts()
+    }
+
+    /** Approvers and accounts: allow notifications and start the background check. */
+    private fun setupAlerts() {
+        val u = user ?: return
+        if (!(u.canApprove || u.isAccounts)) { ApprovalAlerts.stop(this); return }
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 41)
+        }
+        ApprovalAlerts.schedule(this)
     }
 
     override fun onResume() {
@@ -55,7 +67,7 @@ class HomeActivity : AppCompatActivity() {
                 barButton(R.drawable.ic_refresh) { refresh() },
                 barButton(R.drawable.ic_logout) {
                     confirm("Logout?", tr("इस phone से logout करें?", "Log out from this phone?")) {
-                        Session.clear(this@HomeActivity); Store.clear(this@HomeActivity); toLogin()
+                        ApprovalAlerts.stop(this@HomeActivity); Session.clear(this@HomeActivity); Store.clear(this@HomeActivity); toLogin()
                     }
                 },
             )))

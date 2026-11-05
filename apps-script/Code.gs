@@ -110,6 +110,7 @@ const HANDLERS = {
   advanceRequests: advanceRequests,
   decideAdvance: decideAdvance,
   payAdvance: payAdvance,
+  pending: pending,
 };
 
 /** Run once from the editor. */
@@ -672,6 +673,36 @@ function insertAdvance_(name, amount, via, ref, purpose, givenBy, date) {
     'Given By': givenBy, 'Remarks': '',
   });
   return id;
+}
+
+// ------------------------------------------------------------------ notifications
+
+/**
+ * What is waiting for this person right now: claims and advance requests they can approve,
+ * and (accounts) approved advances to pay. The phone checks this in the background and
+ * notifies about items it has not shown before.
+ */
+function pending(d) {
+  const u = me(d);
+  const out = { claims: [], advances: [], toPay: [] };
+  const lim = settings().approvalLimit;
+  if (canApprove(u)) {
+    rows(LOG).forEach(function (c) {
+      if ((clean(c['Status']) || ST.PENDING) !== ST.PENDING || owns(u, c) || !canDecide(u, c, lim)) return;
+      out.claims.push({ id: clean(c['Claim ID']), member: clean(c['Team Member']), amount: money(c['Amount (₹)']), category: clean(c['Category']) });
+    });
+    rows(REQ).forEach(function (r) {
+      if (clean(r['Status']) !== RQ.PENDING || owns(u, r) || !canDecide(u, r, lim)) return;
+      out.advances.push({ id: clean(r['Request ID']), member: clean(r['Team Member']), amount: money(r['Amount (₹)']), purpose: clean(r['Purpose']) });
+    });
+  }
+  if (isAccounts(u)) {
+    rows(REQ).forEach(function (r) {
+      if (clean(r['Status']) !== RQ.APPROVED) return;
+      out.toPay.push({ id: clean(r['Request ID']), member: clean(r['Team Member']), amount: money(r['Amount (₹)']) });
+    });
+  }
+  return out;
 }
 
 // ------------------------------------------------------------------ advance requests
