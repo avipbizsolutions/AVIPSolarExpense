@@ -91,6 +91,9 @@ object Session {
 object Api {
     /** Must match SHARED_KEY in apps-script/Code.gs. */
     private const val SHARED_KEY = "avip-expense-4Rt8"
+
+    /** Key for signing GPS-camera stamps (PhotoStamp); the office server checks with the same key. */
+    internal fun stampKey() = SHARED_KEY
     private const val CONFIG_URL =
         "https://raw.githubusercontent.com/avipbizsolutions/AVIPSolarExpense/main/config.json"
     private const val PREFS = "config"

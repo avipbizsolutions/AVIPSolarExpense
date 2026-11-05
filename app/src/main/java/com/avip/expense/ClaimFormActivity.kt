@@ -40,6 +40,7 @@ class ClaimFormActivity : AppCompatActivity() {
     private inner class Odo(val key: String, val title: String) {
         var photo = ""
         var time: Long? = null
+        var stamp = "" 
         var auto: Long? = null
         lateinit var box: LinearLayout
         lateinit var reading: EditText
@@ -90,7 +91,7 @@ class ClaimFormActivity : AppCompatActivity() {
     private val camera = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val f = r.data?.getStringArrayListExtra(CameraActivity.EXTRA_FILES).orEmpty().lastOrNull()
         val odo = odoTarget
-        if (f != null) { if (odo != null) setOdoPhoto(odo, f, File(f).lastModified()) else { photo = f; showPhoto() } }
+        if (f != null) { if (odo != null) setOdoPhoto(odo, f) else { photo = f; showPhoto() } }
     }
 
     private val gallery = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -98,7 +99,7 @@ class ClaimFormActivity : AppCompatActivity() {
         if (uri != null) {
             val f = Photos.importUri(this, uri, claimId + (odo?.let { "_odo_" + it.key } ?: "_g") + System.currentTimeMillis() % 100000)
             if (f == null) toast(tr("यह photo नहीं खुल सकी", "Could not open this photo"))
-            else if (odo != null) setOdoPhoto(odo, f.absolutePath, Photos.takenAt(this, uri)) else { photo = f.absolutePath; showPhoto() }
+            else { photo = f.absolutePath; showPhoto() }
         }
     }
 
@@ -225,6 +226,7 @@ class ClaimFormActivity : AppCompatActivity() {
             desc.setText(j.optString("description")); site.setText(j.optString("site")); district.setText(j.optString("district"))
             odoStart.photo = j.optString("startPhoto")
             odoStart.time = j.optLong("startTime", 0L).takeIf { it > 0 }
+            odoStart.stamp = j.optString("startStamp").ifBlank { PhotoStamp.read(odoStart.photo)?.text ?: "" }
             odoStart.reading.setText(j.optString("startReading"))
             showOdo(odoStart)
             bike = j.optString("bike", "Own").ifBlank { "Own" }
@@ -251,7 +253,7 @@ class ClaimFormActivity : AppCompatActivity() {
         if (odoStart.photo.isBlank()) { toast(tr("पहले शुरू के odometer की photo लें", "Take the start odometer photo first")); return }
         if (odoValue(odoStart) <= 0) { odoStart.reading.error = tr("Reading डालें", "Enter the reading"); return }
         val j = (journey ?: JSONObject()).put("id", claimId).put("date", date)
-            .put("startPhoto", odoStart.photo).put("startTime", odoStart.time ?: 0L).put("startReading", odoStart.reading.text.toString().trim())
+            .put("startPhoto", odoStart.photo).put("startTime", odoStart.time ?: 0L).put("startStamp", odoStart.stamp).put("startReading", odoStart.reading.text.toString().trim())
             .put("description", desc.text.toString().trim()).put("site", site.text.toString().trim()).put("district", district.text.toString().trim())
             .put("bike", bike).put("bikeNo", bikeNo.text.toString().trim())
             .put("savedAt", System.currentTimeMillis())
@@ -345,13 +347,9 @@ class ClaimFormActivity : AppCompatActivity() {
                     .putExtra(CameraActivity.EXTRA_SUBTITLE, tr("Odometer साफ दिखे", "Keep the odometer clear in view"))
                     .putExtra(CameraActivity.EXTRA_PREFIX, claimId + "_odo_" + o.key)
                     .putExtra(CameraActivity.EXTRA_ODOMETER, true))
-            }, lp(0, WRAP, 1f).margins(context, r = if (journeyMode) 0 else 8))
-            if (!journeyMode) addView(pillButton("Gallery", Ui.BRAND_LIGHT, Ui.TEXT, iconRes = R.drawable.ic_grid, heightDp = 44) {
-                odoTarget = o
-                gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             }, lp(0, WRAP, 1f))
         }, lp().margins(this, t = 6))
-        if (journeyMode) parent.addView(text(tr("Journey में odometer की photo सिर्फ GPS Camera से।", "On a journey, odometer photos come only from the GPS camera."), 12f, Ui.MUTED), lp().margins(this, t = 4))
+        parent.addView(text(tr("Odometer की photo सिर्फ GPS Camera से (Gallery नहीं)।", "Odometer photos only from the GPS camera (no gallery)."), 12f, Ui.MUTED), lp().margins(this, t = 4))
         o.reading = field(parent, tr("Reading (photo से)", "Reading (from the photo)"), "", tr("जैसे 12540", "e.g. 12540"),
             InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL, R.drawable.ic_edit, 8) { updateFuel() }
         o.hint = text("", 12.5f, Ui.MUTED) { visibility = View.GONE }
@@ -361,13 +359,29 @@ class ClaimFormActivity : AppCompatActivity() {
         showOdo(o)
     }
 
-    private fun setOdoPhoto(o: Odo, path: String, takenAt: Long?) {
+    private fun setOdoPhoto(o: Odo, path: String) {
+        odoTarget = null
+        // only a GPS-camera photo with a valid stamp; the end photo must be newer than the start photo
+        val st = PhotoStamp.read(path)
+        if (st == null) {
+            alert(tr("यह photo नहीं चलेगी", "This photo cannot be used"), tr("Odometer की photo GPS Camera से, GPS location के साथ होनी चाहिए। फिर से photo लें।", "The odometer photo must be taken with the GPS camera, with GPS location. Please take it again."))
+            return
+        }
+        if (o === odoEnd && odoStart.time != null && st.time <= odoStart.time!!) {
+            alert(tr("आखिर की photo पुरानी है", "End photo is older"), tr("आखिर के odometer की photo, शुरू की photo के बाद की होनी चाहिए। Journey खत्म होने पर नई photo लें।", "The end odometer photo must be taken after the start photo. Take a new photo at the end of the journey."))
+            return
+        }
+        if (o === odoStart && odoEnd.time != null && odoEnd.time!! <= st.time) {
+            odoEnd.photo = ""; odoEnd.time = null; odoEnd.stamp = ""; odoEnd.reading.setText(""); showOdo(odoEnd)
+            toast(tr("आखिर की photo हटा दी गई — वह शुरू की photo से पहले की थी", "End photo removed: it was taken before the start photo"))
+        }
+        val takenAt = st.time
         o.photo = path
         o.time = takenAt
+        o.stamp = st.text
         // the claim date follows the start-odometer photo
         if (o === odoStart && takenAt != null && takenAt <= System.currentTimeMillis()) { date = Fmt.isoDay(takenAt); dateBtn.text = Fmt.date(date) }
         updateFuel()
-        odoTarget = null
         showOdo(o)
         o.hint.visibility = View.VISIBLE
         o.hint.setTextColor(Ui.MUTED)
@@ -466,6 +480,8 @@ class ClaimFormActivity : AppCompatActivity() {
     private fun submitFuel() {
         if (odoStart.photo.isBlank()) { toast(tr("शुरू के odometer की photo लगाएँ", "Add the start odometer photo")); return }
         if (odoEnd.photo.isBlank()) { toast(tr("आखिर के odometer की photo लगाएँ", "Add the end odometer photo")); return }
+        if (odoStart.stamp.isBlank() || odoEnd.stamp.isBlank()) { toast(tr("Odometer photos GPS Camera से फिर लें", "Take the odometer photos again with the GPS camera")); return }
+        if ((odoEnd.time ?: 0L) <= (odoStart.time ?: 0L)) { toast(tr("आखिर की photo शुरू की photo के बाद की होनी चाहिए", "The end photo must be newer than the start photo")); return }
         if (odoValue(odoStart) <= 0) { odoStart.reading.error = tr("Reading डालें", "Enter the reading"); return }
         if (odoValue(odoEnd) <= 0) { odoEnd.reading.error = tr("Reading डालें", "Enter the reading"); return }
         if (bike == "Company") {
@@ -496,6 +512,7 @@ class ClaimFormActivity : AppCompatActivity() {
         if (fuel) claim.put("odoStart", odoValue(odoStart)).put("odoEnd", odoValue(odoEnd)).put("rate", if (bike == "Company") 0.0 else fuelRate)
             .put("bike", bike).put("bikeNo", if (bike == "Company") bikeNo.text.toString().trim().uppercase() else "")
             .put("odoStartTime", odoStart.time ?: 0L).put("odoEndTime", odoEnd.time ?: 0L)
+            .put("odoStartStamp", odoStart.stamp).put("odoEndStamp", odoEnd.stamp)
         Outbox.add(this, claim, photo, if (fuel) odoStart.photo else "", if (fuel) odoEnd.photo else "")
         busy(tr("Claim भेजा जा रहा है…", "Sending claim…"), { Outbox.send(this, claimId) }, onError = { e ->
             if (e is ApiException && e.network) {

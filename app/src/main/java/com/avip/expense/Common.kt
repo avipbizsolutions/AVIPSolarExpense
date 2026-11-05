@@ -158,3 +158,8 @@ fun android.content.Context.updatingBar(): android.view.View = vertical {
     }, lp(MATCH, dp(6)))
     addView(text(tr("Update हो रहा है…", "Updating…"), 12f, Ui.MUTED), lp().margins(context, b = 6))
 }
+
+/** A simple message with an OK button. */
+fun Activity.alert(title: String, message: String) {
+    androidx.appcompat.app.AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("OK", null).show()
+}

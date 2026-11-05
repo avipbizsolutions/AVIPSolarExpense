@@ -423,6 +423,11 @@ class CameraActivity : AppCompatActivity() {
         val cap = capture ?: return
         if (busy) return
         setBusy(true)
+        if (intent.getBooleanExtra(EXTRA_ODOMETER, false) && current == null) {
+            setBusy(false)
+            toast(tr("GPS location का इंतज़ार करें… Odometer photo GPS के बिना नहीं ली जा सकती।", "Waiting for GPS… An odometer photo cannot be taken without GPS."))
+            return
+        }
         val snap = Snapshot(current, place, Date(), heading.heading)
         if (snap.loc == null) toast(tr("GPS अभी नहीं मिला — photo पर location नहीं आएगी", "No GPS yet: the photo will have no location"))
         cap.takePicture(executor, object : ImageCapture.OnImageCapturedCallback() {
@@ -491,7 +496,10 @@ class CameraActivity : AppCompatActivity() {
     private fun writeExif(f: File, snap: Snapshot) {
         try {
             val exif = ExifInterface(f.absolutePath)
-            snap.loc?.let { exif.setGpsInfo(it) }
+            snap.loc?.let {
+                exif.setGpsInfo(it)
+                exif.setAttribute(ExifInterface.TAG_USER_COMMENT, PhotoStamp.make(snap.time.time, it.latitude, it.longitude))
+            }
             exif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(snap.time))
             exif.saveAttributes()
         } catch (_: Exception) {

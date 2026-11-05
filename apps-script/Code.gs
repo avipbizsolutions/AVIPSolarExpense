@@ -404,11 +404,16 @@ function submitClaim(d) {
   const bikeNo = clean(c.bikeNo, 20).toUpperCase();
   if (companyBike && bikeNo.length < 4) throw new Error('Company bike: enter the bike number.');
   let amount = money(c.amount);
-  let odoStart = 0, odoEnd = 0, km = num(c.km), rate = 0;
+  let odoStart = 0, odoEnd = 0, km = num(c.km), rate = 0, startStamp = null, endStamp = null;
   if (fuel) {
     odoStart = Math.round(num(c.odoStart) * 10) / 10;
     odoEnd = Math.round(num(c.odoEnd) * 10) / 10;
     if (!(odoStart > 0) || !(odoEnd > 0)) throw new Error('Fuel claim: enter the start and end odometer readings.');
+    // both odometer photos from the app's GPS camera; the end photo newer than the start photo
+    startStamp = stampInfo(c.odoStartStamp);
+    endStamp = stampInfo(c.odoEndStamp);
+    if (!startStamp || !endStamp) throw new Error('Fuel claim: odometer photos must be taken with the GPS camera of the latest app. Update the app and take the photos again.');
+    if (endStamp.time.getTime() <= startStamp.time.getTime()) throw new Error('Fuel claim: the end odometer photo must be newer than the start photo.');
     if (odoEnd <= odoStart) throw new Error('Fuel claim: end odometer reading must be more than the start reading.');
     km = Math.round((odoEnd - odoStart) * 10) / 10;
     if (km > MAX_TRIP_KM) throw new Error('Fuel claim: ' + km + ' km looks wrong. Check the odometer readings.');
@@ -463,8 +468,8 @@ function submitClaim(d) {
       'Start Odometer Photo': startLink,
       'End Odometer Photo': endLink,
       'Rate per KM (₹)': fuel ? rate : '',
-      'Start Photo Time': fuel ? photoTime(c.odoStartTime) : '',
-      'End Photo Time': fuel ? photoTime(c.odoEndTime) : '',
+      'Start Photo Time': fuel ? startStamp.time : '',
+      'End Photo Time': fuel ? endStamp.time : '',
       'Bike': fuel ? (companyBike ? 'Company bike – ' + bikeNo : 'Own bike') : '',
     });
     SpreadsheetApp.flush();
@@ -473,6 +478,21 @@ function submitClaim(d) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * GPS-camera stamp from the app: "AVIPSE|<ms>|<lat>|<lng>|<sig>". Returns { time: Date, lat, lng }
+ * when the signature is right (taken with the app's GPS camera, times not edited), else null.
+ */
+function stampInfo(s) {
+  const p = clean(s).split('|');
+  if (p.length !== 5 || p[0] !== 'AVIPSE') return null;
+  const dig = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, 'AVIPSE|' + p[1] + '|' + p[2] + '|' + p[3] + '|' + SHARED_KEY, Utilities.Charset.UTF_8);
+  const hex = dig.slice(0, 8).map(function (b) { return ('0' + (b & 0xff).toString(16)).slice(-2); }).join('');
+  if (hex !== p[4]) return null;
+  const ms = Number(p[1]);
+  if (!(ms > 0) || ms > Date.now() + 600000) return null;
+  return { time: new Date(ms), lat: Number(p[2]), lng: Number(p[3]) };
 }
 
 /** Time a photo was taken (milliseconds from the phone), or '' when unknown / not believable. */
