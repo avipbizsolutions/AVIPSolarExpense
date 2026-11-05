@@ -293,6 +293,7 @@ object Outbox {
             .put("odoStartPhoto", odoStart).put("odoEndPhoto", odoEnd)
             .put("owner", Session.user(c)?.id ?: "")
         c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(claim.getString("id"), o.toString()).commit()
+        Sync.schedule(c)
     }
 
     fun remove(c: Context, id: String) {
@@ -361,7 +362,7 @@ object Outbox {
         running = true
         Thread {
             var n = 0
-            try { n = sendAll(app) } finally { running = false }
+            try { n = Sync.now(app) } finally { running = false }
             done?.invoke(n)
         }.start()
     }

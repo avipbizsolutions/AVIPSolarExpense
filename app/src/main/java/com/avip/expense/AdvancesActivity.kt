@@ -188,10 +188,13 @@ class AdvancesActivity : AppCompatActivity() {
                 if (a <= 0) { amount.error = tr("Amount डालें", "Enter the amount"); return@setOnClickListener }
                 if (via.isBlank()) { toast(tr("Cash / UPI / Bank Transfer चुनें", "Choose Cash, UPI or Bank Transfer")); return@setOnClickListener }
                 d.dismiss()
-                busy(tr("Save हो रहा है…", "Saving…"), {
-                    Api.call(this, "addAdvance", JSONObject().put("memberId", memberId).put("amount", a).put("via", via)
-                        .put("ref", ref.text.toString().trim()).put("purpose", purpose.text.toString().trim()).put("date", date))
-                }) { r -> toast(tr("Advance ${r.optString("id")} save हो गया", "Advance ${r.optString("id")} saved")); load() }
+                val clientId = "GA-" + System.currentTimeMillis()
+                sendOrQueue(tr("Save हो रहा है…", "Saving…"), "addAdvance", JSONObject().put("memberId", memberId).put("amount", a).put("via", via)
+                    .put("ref", ref.text.toString().trim()).put("purpose", purpose.text.toString().trim()).put("date", date).put("clientId", clientId),
+                    "Give advance · " + Fmt.rupees(a), listOf(clientId)) { r ->
+                    if (!r.optBoolean("queued")) toast(tr("Advance ${r.optString("id")} save हो गया", "Advance ${r.optString("id")} saved"))
+                    load()
+                }
             }
         }
         d.show()

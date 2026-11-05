@@ -165,15 +165,17 @@ class ClaimActivity : AppCompatActivity() {
     }
 
     private fun approve() {
-        busy(tr("Approve हो रहा है…", "Approving…"), { Api.call(this, "decide", JSONObject().put("claimId", claim.id).put("approve", true)) }) { r ->
-            skippedOr(r) { toast("Approved"); finish() }
+        sendOrQueue(tr("Approve हो रहा है…", "Approving…"), "decide", JSONObject().put("claimId", claim.id).put("approve", true),
+            "Approve · " + claim.member + " · " + Fmt.rupees(claim.amount), listOf(claim.id)) { r ->
+            skippedOr(r) { if (!r.optBoolean("queued")) toast("Approved"); finish() }
         }
     }
 
     private fun reject() {
         askText(tr("Reject का कारण", "Reason for rejection"), tr("जैसे: Bill साफ नहीं है", "e.g. Bill is not clear")) { note ->
-            busy(tr("Reject हो रहा है…", "Rejecting…"), { Api.call(this, "decide", JSONObject().put("claimId", claim.id).put("approve", false).put("note", note)) }) { r ->
-                skippedOr(r) { toast("Rejected"); finish() }
+            sendOrQueue(tr("Reject हो रहा है…", "Rejecting…"), "decide", JSONObject().put("claimId", claim.id).put("approve", false).put("note", note),
+                "Reject · " + claim.member + " · " + Fmt.rupees(claim.amount), listOf(claim.id)) { r ->
+                skippedOr(r) { if (!r.optBoolean("queued")) toast("Rejected"); finish() }
             }
         }
     }
@@ -237,10 +239,10 @@ fun AppCompatActivity.payDialog(ids: List<String>, total: Double, onDone: () -> 
         d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             if (via.isBlank()) { toast(tr("Cash / UPI / Bank Transfer चुनें", "Choose Cash, UPI or Bank Transfer")); return@setOnClickListener }
             d.dismiss()
-            busy(tr("Save हो रहा है…", "Saving…"), {
-                Api.call(this, "markPaid", JSONObject().put("claimIds", JSONArray(ids)).put("via", via)
-                    .put("ref", ref.text.toString().trim()).put("date", date))
-            }) { r -> skippedOr(r) { toast("${r.optInt("done")} claim paid · ${Fmt.rupees(r.optDouble("total"))}"); onDone() } }
+            sendOrQueue(tr("Save हो रहा है…", "Saving…"), "markPaid", JSONObject().put("claimIds", JSONArray(ids)).put("via", via)
+                .put("ref", ref.text.toString().trim()).put("date", date), "Paid · ${ids.size} claim · ${Fmt.rupees(total)}", ids) { r ->
+                skippedOr(r) { if (!r.optBoolean("queued")) toast("${r.optInt("done")} claim paid · ${Fmt.rupees(r.optDouble("total"))}"); onDone() }
+            }
         }
     }
     d.show()

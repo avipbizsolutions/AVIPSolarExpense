@@ -161,6 +161,11 @@ function rows(name) {
   vals.forEach(function (r, i) {
     if (String(r[0]).trim() === '') return;
     const o = { _row: i + 2 };
+    if (name === LOG) {
+      // a row with only a date (no person, no amount) is not a claim
+      const pi = t.headers.indexOf('Team Member'), ai = t.headers.indexOf('Amount (₹)');
+      if (pi >= 0 && ai >= 0 && String(r[pi]).trim() === '' && String(r[ai]).trim() === '') return;
+    }
     // first column with a header wins (Advances has a second "Team Member" in its summary block)
     t.headers.forEach(function (h, j) { if (h && !(h in o)) o[h] = r[j]; });
     list.push(o);
@@ -171,9 +176,9 @@ function rows(name) {
 /** Writes only the given columns (never the formula columns Month and Team). */
 function setFields(name, row, obj) {
   const t = table(name);
-  Object.keys(obj).forEach(function (k) {
-    t.sh.getRange(row, t.col(k)).setValue(obj[k] === undefined || obj[k] === null ? '' : obj[k]);
-  });
+  // every column is checked first, so a missing column never leaves a half-written row
+  const cols = Object.keys(obj).map(function (k) { return [t.col(k), obj[k] === undefined || obj[k] === null ? '' : obj[k]]; });
+  cols.forEach(function (cv) { t.sh.getRange(row, cv[0]).setValue(cv[1]); });
 }
 
 function append(name, obj) {
@@ -671,17 +676,23 @@ function addAdvance(d) {
   if (!(amount > 0) || amount > 1000000) throw new Error('Enter the advance amount.');
   const via = clean(d.via);
   if (PAY_VIA.indexOf(via) < 0) throw new Error('Choose Cash, UPI or Bank Transfer.');
+  const clientId = clean(d.clientId, 40);
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    return { id: insertAdvance_(person.name, amount, via, d.ref, d.purpose, u.name, d.date) };
+    // sent again from a phone that was offline: the same advance is not added twice
+    if (clientId) {
+      const dup = rows(ADV).filter(function (a) { return clean(a['Remarks']) === 'app:' + clientId; })[0];
+      if (dup) return { id: clean(dup['Advance ID']), duplicate: true };
+    }
+    return { id: insertAdvance_(person.name, amount, via, d.ref, d.purpose, u.name, d.date, clientId ? 'app:' + clientId : '') };
   } finally {
     lock.releaseLock();
   }
 }
 
 /** Adds one row to the Advances tab (call inside the script lock); returns its ADV- id. */
-function insertAdvance_(name, amount, via, ref, purpose, givenBy, date) {
+function insertAdvance_(name, amount, via, ref, purpose, givenBy, date, remarks) {
   const advs = rows(ADV);
   let n = 0;
   advs.forEach(function (a) { const m = clean(a['Advance ID']).match(/^ADV-(\d+)$/); if (m) n = Math.max(n, Number(m[1])); });
@@ -690,7 +701,7 @@ function insertAdvance_(name, amount, via, ref, purpose, givenBy, date) {
     'Advance ID': id, 'Date': date ? toDate(date) : new Date(new Date().setHours(0, 0, 0, 0)),
     'Team Member': name, 'Amount (₹)': amount, 'Paid Via': via,
     'Payment Reference': clean(ref) ? "'" + clean(ref, 60) : '', 'Purpose': clean(purpose, 200),
-    'Given By': givenBy, 'Remarks': '',
+    'Given By': givenBy, 'Remarks': remarks || '',
   });
   return id;
 }

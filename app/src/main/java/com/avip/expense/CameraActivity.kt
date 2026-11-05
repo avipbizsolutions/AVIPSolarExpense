@@ -460,7 +460,12 @@ class CameraActivity : AppCompatActivity() {
                             if (crop !== photo) crop.recycle()
                         } catch (_: Exception) {}
                     }
-                    val map = snap.loc?.let { MapTiles.render(it.latitude, it.longitude, zoom = 16, sizePx = 512) }
+                    // without internet the stamp has no mini map, but time, GPS and the signature are still there
+                    val online = try {
+                        val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+                        cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+                    } catch (_: Exception) { false }
+                    val map = if (online) snap.loc?.let { runCatching { MapTiles.render(it.latitude, it.longitude, zoom = 16, sizePx = 512) }.getOrNull() } else null
                     Stamp.draw(photo, map, snap.loc, snap.place, snap.time, snap.heading)
                     f.outputStream().use { photo.compress(Bitmap.CompressFormat.JPEG, if (hd) 88 else 82, it) }
                     writeExif(f, snap)

@@ -30,6 +30,7 @@ data class AdvRequest(
 
     companion object {
         const val PENDING = "Pending"; const val APPROVED = "Approved"; const val REJECTED = "Rejected"; const val PAID = "Paid"
+        const val QUEUED = "Queued" // on the phone, waiting for internet
 
         fun from(o: JSONObject) = AdvRequest(
             o.optString("id"), o.optString("requestedOn"), o.optString("member"), o.optString("memberId"), o.optString("team"),
@@ -47,6 +48,7 @@ data class AdvRequest(
             APPROVED -> tr("Approved, payment बाकी", "Approved, not paid")
             REJECTED -> "Rejected"
             PAID -> tr("Paid · मिल गया", "Paid")
+            QUEUED -> tr("Internet का इंतज़ार", "Waiting for internet")
             else -> s
         }
 
@@ -143,8 +145,9 @@ class AdvanceRequestsActivity : AppCompatActivity() {
             val id = "ARQ-" + SimpleDateFormat("yyMMddHHmmss", Locale.US).format(Date()) + "-" + u.id.uppercase().replace(Regex("[^A-Z0-9]"), "")
             val req = JSONObject().put("id", id).put("amount", a).put("purpose", purpose.text.toString().trim())
                 .put("neededBy", needed).put("payVia", payVia)
-            busy(tr("भेजा जा रहा है…", "Sending…"), { Api.call(this, "requestAdvance", JSONObject().put("request", req)) }) {
-                toast(tr("Advance request भेज दी। Approval होते ही आपको दिखेगा।", "Advance request sent. You will see it here once it is approved."))
+            sendOrQueue(tr("भेजा जा रहा है…", "Sending…"), "requestAdvance", JSONObject().put("request", req),
+                "Advance request · " + Fmt.rupees(a) + " · " + purpose.text.toString().trim(), listOf(id)) { r ->
+                if (!r.optBoolean("queued")) toast(tr("Advance request भेज दी। Approval होते ही आपको दिखेगा।", "Advance request sent. You will see it here once it is approved."))
                 finish()
             }
         }
@@ -204,13 +207,15 @@ class AdvanceRequestsActivity : AppCompatActivity() {
                 renderDetail(r, u)
             }
             MODE_PAY -> {
-                val list = all.filter { it.status == AdvRequest.APPROVED }
+                val waiting = Actions.pendingRefs(this)
+                val list = all.filter { it.status == AdvRequest.APPROVED && it.id !in waiting }
                 body.addView(text(tr("${list.size} advance approved, payment बाकी · कुल ${Fmt.rupees(list.sumOf { it.amount })}", "${list.size} approved, not paid · total ${Fmt.rupees(list.sumOf { it.amount })}"), 14f, Ui.MUTED, bold = true), lp().margins(this, b = 10))
                 if (list.isEmpty()) body.addView(note(tr("Payment के लिए कोई advance नहीं।", "No advances waiting for payment.")))
                 list.forEach { r -> body.addView(requestCard(r) { openDetail(r) }, lp().margins(this, b = 8)) }
             }
             else -> {
-                val list = all.filter { it.canDecide }
+                val waitingRefs = Actions.pendingRefs(this)
+                val list = all.filter { it.canDecide && it.id !in waitingRefs }
                 val waiting = all.count { it.status == AdvRequest.PENDING && !it.canDecide && it.memberId != u.id }
                 body.addView(text(tr("${list.size} request · कुल ${Fmt.rupees(list.sumOf { it.amount })}", "${list.size} requests · total ${Fmt.rupees(list.sumOf { it.amount })}"), 14f, Ui.MUTED, bold = true), lp().margins(this, b = 10))
                 if (waiting > 0 && !u.isAdmin) body.addView(note(tr("$waiting request (बड़ी रकम या Manager की) सिर्फ Atul या Rahul approve करेंगे।", "$waiting requests (large amounts or from managers) can be approved only by Atul or Rahul."), Ui.SUN_LIGHT, Ui.SUN_TEXT), lp().margins(this, b = 10))
@@ -329,9 +334,9 @@ class AdvanceRequestsActivity : AppCompatActivity() {
                 val n = noteBox.text.toString().trim()
                 if (!approve && n.length < 3) { noteBox.error = tr("कारण लिखें", "Write the reason"); return@setOnClickListener }
                 d.dismiss()
-                busy(tr("Save हो रहा है…", "Saving…"), {
-                    Api.call(this, "decideAdvance", JSONObject().put("requestId", r.id).put("approve", approve).put("note", n))
-                }) { res ->
+                sendOrQueue(tr("Save हो रहा है…", "Saving…"), "decideAdvance", JSONObject().put("requestId", r.id).put("approve", approve).put("note", n),
+                    (if (approve) "Approve" else "Reject") + " advance · " + r.member + " · " + Fmt.rupees(r.amount), listOf(r.id)) { res ->
+                    if (res.optBoolean("queued")) { finish(); return@sendOrQueue }
                     val skipped = res.optJSONArray("skipped")
                     if (res.optInt("done") == 0 && skipped != null && skipped.length() > 0) toast(skipped.optString(0))
                     else toast(if (approve) tr("Approve हो गया। Accounts payment करेगा।", "Approved. Accounts will pay it.") else tr("Reject हो गया", "Rejected"))
@@ -357,9 +362,9 @@ class AdvanceRequestsActivity : AppCompatActivity() {
             d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 if (via.isBlank()) { toast(tr("Cash / UPI / Bank चुनें", "Choose Cash, UPI or Bank")); return@setOnClickListener }
                 d.dismiss()
-                busy(tr("Save हो रहा है…", "Saving…"), {
-                    Api.call(this, "payAdvance", JSONObject().put("requestId", r.id).put("via", via).put("ref", ref.text.toString().trim()))
-                }) { res ->
+                sendOrQueue(tr("Save हो रहा है…", "Saving…"), "payAdvance", JSONObject().put("requestId", r.id).put("via", via).put("ref", ref.text.toString().trim()),
+                    "Pay advance · " + r.member + " · " + Fmt.rupees(r.amount), listOf(r.id)) { res ->
+                    if (res.optBoolean("queued")) { finish(); return@sendOrQueue }
                     toast(tr("Paid · ${res.optString("advanceId")} बन गया", "Paid · ${res.optString("advanceId")} recorded"))
                     refreshAndClose()
                 }

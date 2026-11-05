@@ -32,6 +32,7 @@ class HomeActivity : AppCompatActivity() {
         user = Session.user(this) ?: run { toLogin(); return }
         build()
         setupAlerts()
+        if (Sync.pending(this)) Sync.schedule(this)
     }
 
     /** Approvers and accounts: allow notifications and start the background check. */
@@ -100,7 +101,7 @@ class HomeActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val r = withContext(Dispatchers.IO) {
                 runCatching {
-                    Outbox.sendAll(this@HomeActivity)
+                    Sync.now(this@HomeActivity)
                     val home = try {
                         Api.call(this@HomeActivity, "home")
                     } catch (e: ApiException) {
@@ -131,7 +132,7 @@ class HomeActivity : AppCompatActivity() {
     /** When the internet comes back while the app is open, waiting claims go and the list updates. */
     private val netCallback = object : android.net.ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: android.net.Network) {
-            if (Outbox.all(this@HomeActivity).isNotEmpty()) runOnUiThread { if (!isFinishing) refresh() }
+            if (Sync.pending(this@HomeActivity)) runOnUiThread { if (!isFinishing) refresh() }
         }
     }
 
@@ -179,7 +180,11 @@ class HomeActivity : AppCompatActivity() {
             })
         }, lp().margins(this, b = 8))
         // my advance requests that are still open
-        AdvRequest.list(mine?.optJSONArray("advRequests")).filter { it.status == AdvRequest.PENDING || it.status == AdvRequest.APPROVED }.forEach { r ->
+        val queuedReqs = Actions.all(this).filter { it.optString("kind") == "requestAdvance" && it.optString("error").isBlank() }.map {
+            val q = it.getJSONObject("body").getJSONObject("request")
+            AdvRequest.from(JSONObject().put("id", q.optString("id")).put("amount", q.optDouble("amount")).put("purpose", q.optString("purpose")).put("status", AdvRequest.QUEUED))
+        }
+        (queuedReqs + AdvRequest.list(mine?.optJSONArray("advRequests")).filter { it.status == AdvRequest.PENDING || it.status == AdvRequest.APPROVED }).forEach { r ->
             body.addView(card(12) {
                 addView(horizontal {
                     gravity = Gravity.CENTER_VERTICAL
@@ -225,6 +230,29 @@ class HomeActivity : AppCompatActivity() {
                     startActivity(Intent(this@HomeActivity, TeamClaimsActivity::class.java).putExtra(TeamClaimsActivity.EXTRA_MODE, TeamClaimsActivity.MODE_ALL))
                 }
             }, lp().margins(this, b = 8))
+        }
+
+        // ---- actions done without internet, waiting to be sent
+        val acts = Actions.all(this)
+        if (acts.isNotEmpty()) {
+            body.addView(card(14) {
+                background = rounded(Ui.SUN_LIGHT, dpf(16f))
+                val waiting = acts.filter { it.optString("error").isBlank() }
+                if (waiting.isNotEmpty()) {
+                    addView(text(tr("Internet आने पर अपने आप जाएगा (${waiting.size})", "Will be sent when the internet is back (${waiting.size})"), 14.5f, Ui.SUN_TEXT, bold = true))
+                    waiting.take(6).forEach { addView(text("• " + it.optString("label"), 13f, Ui.TEXT), lp().margins(context, t = 2)) }
+                }
+                acts.filter { it.optString("error").isNotBlank() }.forEach { a ->
+                    addView(horizontal {
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(text("✕ " + a.optString("label") + "\n" + a.optString("error"), 12.5f, Ui.DANGER), lp(0, WRAP, 1f))
+                        addView(text("OK", 14f, Ui.BRAND, bold = true) {
+                            setPadding(dp(12), dp(8), dp(4), dp(8))
+                            setOnClickListener { Actions.remove(this@HomeActivity, a.optString("id")); render() }
+                        })
+                    }, lp().margins(context, t = 6))
+                }
+            }, lp().margins(this, b = 10))
         }
 
         // ---- bike journeys in progress (drafts on this phone)

@@ -58,11 +58,12 @@ class TeamClaimsActivity : AppCompatActivity() {
 
     /** Claims from the last load, filtered for this screen, so the list shows at once. */
     private fun fromCache(): List<Claim> {
+        val waitingRefs = Actions.pendingRefs(this)
         val me = Session.user(this)
         return Claim.list(Store.load(this, "team")?.optJSONArray("claims")).filter {
             when (mode) {
-                MODE_APPROVE -> it.status == Status.PENDING && it.memberId != me?.id && me?.canDecide(it, Settings.approvalLimit(this)) == true
-                MODE_PAY -> it.status == Status.APPROVED && it.paidBy == "Self"
+                MODE_APPROVE -> it.status == Status.PENDING && it.memberId != me?.id && me?.canDecide(it, Settings.approvalLimit(this)) == true && it.id !in waitingRefs
+                MODE_PAY -> it.status == Status.APPROVED && it.paidBy == "Self" && it.id !in waitingRefs
                 else -> true
             }
         }
@@ -178,8 +179,9 @@ class TeamClaimsActivity : AppCompatActivity() {
         val ids = selected.toList()
         val sum = claims.filter { it.id in selected }.sumOf { it.amount }
         confirm(tr("Approve करें?", "Approve?"), tr("${ids.size} claim · कुल ${Fmt.rupees(sum)}", "${ids.size} claims · total ${Fmt.rupees(sum)}")) {
-            busy(tr("Approve हो रहा है…", "Approving…"), { Api.call(this, "decide", JSONObject().put("claimIds", JSONArray(ids)).put("approve", true)) }) { r ->
-                skippedOr(r) { toast("${r.optInt("done")} claim approved"); selected.clear(); load() }
+            sendOrQueue(tr("Approve हो रहा है…", "Approving…"), "decide", JSONObject().put("claimIds", JSONArray(ids)).put("approve", true),
+                "Approve · ${ids.size} claim · ${Fmt.rupees(sum)}", ids) { r ->
+                skippedOr(r) { if (!r.optBoolean("queued")) toast("${r.optInt("done")} claim approved"); selected.clear(); if (r.optBoolean("queued")) render() else load() }
             }
         }
     }
