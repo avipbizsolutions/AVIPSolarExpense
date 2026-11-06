@@ -46,6 +46,7 @@ class ClaimFormActivity : AppCompatActivity() {
         lateinit var reading: EditText
         lateinit var hint: android.widget.TextView
         lateinit var alts: LinearLayout
+        lateinit var cap: android.widget.TextView
     }
     private val odoStart = Odo("start", "")
     private val odoEnd = Odo("end", "")
@@ -155,33 +156,42 @@ class ClaimFormActivity : AppCompatActivity() {
             addView(kmBox, lp())
         })
 
-        fuelBox = section(tr("Odometer (Fuel / Petrol)", "Odometer (fuel / petrol)"),
-            tr("जाने से पहले और लौटने पर odometer की GPS photo लें। KM और Amount अपने आप बनेगा: ₹${Fmt.km(fuelRate)} प्रति km।",
-               "Take a GPS photo of the odometer before you start and when you are back. KM and amount are worked out automatically at ₹${Fmt.km(fuelRate)} per km.")) {
-            addView(text(req(tr("किसकी bike?", "Whose bike?")), 15f, Ui.TEXT, bold = true), lp().margins(context, t = 4, b = 6))
-            bikeChips = vertical { }
+        fuelBox = section(tr("Fuel / Petrol", "Fuel / petrol")) {
+            // own / company bike: one segmented row
+            bikeChips = horizontal { }
             addView(bikeChips, lp())
-            fuelHint = text("", 12.5f, Ui.MUTED)
-            addView(fuelHint, lp().margins(context, t = 4))
+            fuelHint = text("", 12f, Ui.MUTED)
+            addView(fuelHint, lp().margins(context, t = 6))
             companyBox = vertical {
-                bikeNo = field(this, tr("कौन सी bike (number)", "Which bike (number)"), "", tr("जैसे BR01 AB 4521", "e.g. BR01 AB 4521"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS, R.drawable.ic_edit, 20, required = true) {}
-                petrol = field(this, tr("Petrol भरवाया (₹) — bill जितना", "Petrol filled (₹), as on the bill"), "", tr("जैसे 300", "e.g. 300"), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL, R.drawable.ic_rupee, 9, required = true) { updateFuel() }
-                petrol.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 20f)
-                addView(text(tr("नीचे \"Bill photo\" में petrol bill की photo लगाना ज़रूरी है।", "Adding the petrol bill under \"Bill photo\" below is required."), 12.5f, Ui.SUN_TEXT, bold = true), lp().margins(context, t = 6))
+                addView(horizontal {
+                    addView(vertical {
+                        bikeNo = field(this, tr("Bike number", "Bike number"), "", "BR01 AB 4521", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS, 0, 20, required = true) {}
+                    }, lp(0, WRAP, 1.25f).margins(context, r = 8))
+                    addView(vertical {
+                        petrol = field(this, tr("Petrol (₹)", "Petrol (₹)"), "", "300", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL, 0, 9, required = true) { updateFuel() }
+                        petrol.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 18f)
+                        petrol.typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    }, lp(0, WRAP, 1f))
+                })
+                addView(text(tr("नीचे Bill में petrol bill की photo ज़रूरी।", "Petrol bill photo required in Bill below."), 12f, Ui.SUN_TEXT, bold = true), lp().margins(context, t = 4))
             }.apply { visibility = View.GONE }
             addView(companyBox, lp())
-            odoSlot(this, odoStart, tr("शुरू का Odometer", "Start odometer"))
-            odoSlot(this, odoEnd, tr("आखिर का Odometer", "End odometer"))
-            dateNote = text("", 13f, Ui.SUN_TEXT) { visibility = View.GONE }
-            addView(dateNote, lp().margins(context, t = 10))
-            fuelSum = text("", 17f, Ui.TEXT, bold = true) {
-                background = rounded(Ui.BRAND_LIGHT, dpf(12f))
-                setPadding(dp(14), dp(12), dp(14), dp(12))
+            // start and end odometer side by side
+            addView(horizontal {
+                addView(odoTile(odoStart, tr("शुरू", "Start")), lp(0, WRAP, 1f).margins(context, r = 8))
+                addView(odoTile(odoEnd, tr("आखिर", "End")), lp(0, WRAP, 1f))
+            }, lp().margins(context, t = 12))
+            addView(text(tr("📷 सिर्फ GPS Camera · आखिर की photo शुरू के बाद की", "📷 GPS camera only · end photo after the start photo"), 11.5f, Ui.MUTED) { gravity = Gravity.CENTER }, lp().margins(context, t = 6))
+            dateNote = text("", 12.5f, Ui.SUN_TEXT, bold = true) { visibility = View.GONE }
+            addView(dateNote, lp().margins(context, t = 8))
+            fuelSum = text("", 16.5f, Ui.BRAND_DARK, bold = true) {
+                background = rounded(Ui.BRAND_LIGHT, dpf(14f), Ui.BRAND, dp(1))
+                gravity = Gravity.CENTER
+                setPadding(dp(12), dp(12), dp(12), dp(12))
             }
-            addView(fuelSum, lp().margins(context, t = 14))
-            draftBtn = pillButton(tr("Journey शुरू — Draft save करें", "Journey started: save as draft"), Ui.BRAND, iconRes = R.drawable.ic_history, heightDp = 48) { saveDraft() }
-            addView(draftBtn, lp().margins(context, t = 12))
-            addView(text(tr("लौटने पर Home पर यह Draft खोलें, आखिर के odometer की photo लगाएँ और Claim भेजें।", "When you are back, open this draft on the home screen, add the end odometer photo and send the claim."), 12.5f, Ui.MUTED), lp().margins(context, t = 6))
+            addView(fuelSum, lp().margins(context, t = 10))
+            draftBtn = pillButton(tr("Journey शुरू · Draft save करें", "Journey started · save draft"), Ui.BRAND_LIGHT, Ui.BRAND_DARK, iconRes = R.drawable.ic_history, heightDp = 44) { saveDraft() }
+            addView(draftBtn, lp().margins(context, t = 10))
         }.apply { visibility = View.GONE }
         body.addView(fuelBox)
         showBike()
@@ -241,14 +251,21 @@ class ClaimFormActivity : AppCompatActivity() {
 
     private fun showBike() {
         bikeChips.removeAllViews()
-        bikeChips.addView(chips(listOf(tr("अपनी bike", "Own bike"), tr("Company bike", "Company bike")),
-            if (bike == "Company") tr("Company bike", "Company bike") else tr("अपनी bike", "Own bike")) { pick ->
-            bike = if (pick == tr("Company bike", "Company bike")) "Company" else "Own"
-            showBike(); updateFuel()
-        })
+        bikeChips.background = rounded(Ui.BRAND_LIGHT, dpf(14f))
+        bikeChips.setPadding(dp(4), dp(4), dp(4), dp(4))
+        for ((key, label) in listOf("Own" to tr("🏍 अपनी bike", "🏍 Own bike"), "Company" to tr("🏢 Company bike", "🏢 Company bike"))) {
+            val on = bike == key
+            bikeChips.addView(text(label, 14.5f, if (on) android.graphics.Color.WHITE else Ui.TEXT, bold = true) {
+                gravity = Gravity.CENTER
+                background = rounded(if (on) Ui.BRAND else android.graphics.Color.TRANSPARENT, dpf(11f))
+                isClickable = true
+                contentDescription = label + if (on) " ✓" else ""
+                setOnClickListener { if (bike != key) { bike = key; showBike(); updateFuel() } }
+            }, lp(0, dp(44), 1f))
+        }
         companyBox.visibility = if (bike == "Company") View.VISIBLE else View.GONE
-        fuelHint.text = if (bike == "Company") tr("Company bike: petrol bill जितना पैसा मिलेगा (₹/km नहीं)। Km और ₹/km record के लिए दिखेगा।", "Company bike: you get the petrol bill amount, not a per-km rate. Km and cost per km are shown for the record.")
-            else tr("अपनी bike: ₹${Fmt.km(fuelRate)} प्रति km मिलेगा। Bill की ज़रूरत नहीं।", "Own bike: ₹${Fmt.km(fuelRate)} per km. No bill needed.")
+        fuelHint.text = if (bike == "Company") tr("Bill जितना पैसा मिलेगा · km और ₹/km record के लिए", "You get the bill amount · km and ₹/km shown for the record")
+            else tr("₹${Fmt.km(fuelRate)} प्रति km · bill की ज़रूरत नहीं", "₹${Fmt.km(fuelRate)} per km · no bill needed")
     }
 
     /** Saves the journey so far (start photo and reading) on the phone, as a draft. */
@@ -337,28 +354,43 @@ class ClaimFormActivity : AppCompatActivity() {
         save(a)
     }
 
-    private fun odoSlot(parent: LinearLayout, o: Odo, title: String) {
-        parent.addView(text(req(title), 15f, Ui.TEXT, bold = true), lp().margins(this, t = 14, b = 6))
-        o.box = vertical { }
-        parent.addView(o.box, lp())
-        parent.addView(horizontal {
-            addView(pillButton("GPS Camera", Ui.BRAND, iconRes = R.drawable.ic_camera, heightDp = 44) {
-                odoTarget = o
-                camera.launch(Intent(this@ClaimFormActivity, CameraActivity::class.java)
-                    .putExtra(CameraActivity.EXTRA_DIR, Photos.dir(this@ClaimFormActivity).absolutePath)
-                    .putExtra(CameraActivity.EXTRA_TITLE, title)
-                    .putExtra(CameraActivity.EXTRA_SUBTITLE, tr("Odometer साफ दिखे", "Keep the odometer clear in view"))
-                    .putExtra(CameraActivity.EXTRA_PREFIX, claimId + "_odo_" + o.key)
-                    .putExtra(CameraActivity.EXTRA_ODOMETER, true))
-            }, lp(0, WRAP, 1f))
-        }, lp().margins(this, t = 6))
-        parent.addView(text(tr("Odometer की photo सिर्फ GPS Camera से (Gallery नहीं)।", "Odometer photos only from the GPS camera (no gallery)."), 12f, Ui.MUTED), lp().margins(this, t = 4))
-        o.reading = field(parent, tr("Reading (photo से)", "Reading (from the photo)"), "", tr("जैसे 12540", "e.g. 12540"),
-            InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL, R.drawable.ic_edit, 8, required = true) { updateFuel() }
-        o.hint = text("", 12.5f, Ui.MUTED) { visibility = View.GONE }
-        parent.addView(o.hint, lp().margins(this, t = 4))
-        o.alts = horizontal { visibility = View.GONE }
-        parent.addView(o.alts, lp().margins(this, t = 4))
+    private fun launchOdoCamera(o: Odo, title: String) {
+        odoTarget = o
+        camera.launch(Intent(this, CameraActivity::class.java)
+            .putExtra(CameraActivity.EXTRA_DIR, Photos.dir(this).absolutePath)
+            .putExtra(CameraActivity.EXTRA_TITLE, title)
+            .putExtra(CameraActivity.EXTRA_SUBTITLE, tr("Odometer साफ दिखे", "Keep the odometer clear in view"))
+            .putExtra(CameraActivity.EXTRA_PREFIX, claimId + "_odo_" + o.key)
+            .putExtra(CameraActivity.EXTRA_ODOMETER, true))
+    }
+
+    /** One odometer: a photo tile (tap = GPS camera) and the reading under it. */
+    private fun odoTile(o: Odo, title: String): View = vertical {
+        val camTitle = tr("$title का Odometer", "$title odometer")
+        addView(text(req(camTitle), 13f, Ui.MUTED, bold = true), lp().margins(context, b = 6))
+        o.box = vertical {
+            gravity = Gravity.CENTER
+            background = rounded(Ui.BG, dpf(14f), 0xFFC8BDD8.toInt(), dp(1))
+            isClickable = true
+            foreground = context.ripple()
+            clipToOutline = true
+            setOnClickListener { launchOdoCamera(o, camTitle) }
+        }
+        addView(o.box, lp(MATCH, dp(112)))
+        o.cap = text("", 11.5f, Ui.MUTED) { gravity = Gravity.CENTER }
+        addView(o.cap, lp().margins(context, t = 3))
+        o.reading = input(tr("Reading", "Reading"), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL, "", 8, required = true).apply {
+            gravity = Gravity.CENTER
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 19f)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            letterSpacing = 0.06f
+        }
+        o.reading.onChange { updateFuel() }
+        addView(o.reading, lp().margins(context, t = 4))
+        o.hint = text("", 11.5f, Ui.MUTED) { visibility = View.GONE; gravity = Gravity.CENTER }
+        addView(o.hint, lp().margins(context, t = 3))
+        o.alts = horizontal { visibility = View.GONE; gravity = Gravity.CENTER }
+        addView(o.alts, lp().margins(context, t = 3))
         showOdo(o)
     }
 
@@ -434,15 +466,16 @@ class ClaimFormActivity : AppCompatActivity() {
     private fun showOdo(o: Odo) {
         o.box.removeAllViews()
         if (o.photo.isBlank() || !File(o.photo).exists()) {
-            o.box.addView(note(tr("अभी photo नहीं लगी।", "No photo yet."), Ui.SUN_LIGHT, Ui.SUN_TEXT))
+            o.box.addView(icon(R.drawable.ic_camera, Ui.BRAND, 30), lp(dp(30), dp(30)))
+            o.box.addView(text(tr("Tap: GPS photo", "Tap: GPS photo"), 12.5f, Ui.BRAND, bold = true), lp(WRAP, WRAP).margins(this, t = 6))
+            o.cap.text = ""
             return
         }
         o.box.addView(ImageView(this).apply {
             setImageBitmap(BitmapFactory.decodeFile(o.photo, BitmapFactory.Options().apply { inSampleSize = 4 }))
-            adjustViewBounds = true
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            background = rounded(Ui.BG, dpf(12f))
-        }, lp(MATCH, dp(170)))
+            scaleType = ImageView.ScaleType.CENTER_CROP
+        }, lp(MATCH, MATCH))
+        o.cap.text = o.time?.let { "✓ " + SimpleDateFormat("dd MMM, hh:mm a", Locale.ENGLISH).format(Date(it)) + tr(" · फिर से: tap", " · tap to retake") } ?: ""
     }
 
     private fun odoValue(o: Odo) = o.reading.text.toString().trim().toDoubleOrNull() ?: 0.0
