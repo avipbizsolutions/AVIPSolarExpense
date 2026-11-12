@@ -144,7 +144,7 @@ object Store {
         "Vehicle Repair & Maintenance", "Mobile / Internet Recharge", "DISCOM / Net Meter Fees",
         "Documents / Printing / Xerox", "Customer Meeting / Marketing", "Office Supplies", "Miscellaneous",
     )
-    val DEFAULT_MODES = listOf("Cash", "UPI", "Bank Transfer", "Company Card", "Company Advance")
+    val DEFAULT_MODES = listOf("Cash", "UPI")
     val PAY_VIA = listOf("Cash", "UPI", "Bank Transfer")
 }
 
