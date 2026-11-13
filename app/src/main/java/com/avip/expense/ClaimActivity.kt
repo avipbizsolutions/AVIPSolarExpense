@@ -9,6 +9,10 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -106,8 +110,8 @@ class ClaimActivity : AppCompatActivity() {
                 addView(text(label, 14f, Ui.MUTED, bold = true), lp().margins(context, t = 8, b = 6))
                 val box = vertical { }
                 addView(box, lp())
-                if (local.isNotBlank() && File(local).exists()) showImage(BitmapFactory.decodeFile(local, BitmapFactory.Options().apply { inSampleSize = 2 }), box)
-                else if (PhotoCache.has(this@ClaimActivity, c.id, which)) showImage(PhotoCache.bitmap(this@ClaimActivity, c.id, which), box)
+                if (local.isNotBlank() && File(local).exists()) showPhotoAsync(box, "local:$local") { Img.decodeFile(local, screenW()) }
+                else if (PhotoCache.has(this@ClaimActivity, c.id, which)) showPhotoAsync(box, "${c.id}:$which") { Img.decodeFile(PhotoCache.file(this@ClaimActivity, c.id, which).absolutePath, screenW()) }
                 else box.addView(pillButton(tr("$label देखें", "View $label".lowercase().replaceFirstChar { it.uppercase() }), Ui.BRAND_LIGHT, Ui.TEXT, heightDp = 44, iconRes = R.drawable.ic_camera) { loadPhoto(which, box) }, lp())
             }
         })
@@ -116,8 +120,8 @@ class ClaimActivity : AppCompatActivity() {
             photoView = vertical { }
             addView(photoView, lp())
             when {
-                c.localPhoto.isNotBlank() && File(c.localPhoto).exists() -> showImage(BitmapFactory.decodeFile(c.localPhoto, BitmapFactory.Options().apply { inSampleSize = 2 }))
-                c.hasPhoto && PhotoCache.has(this@ClaimActivity, c.id, "bill") -> showImage(PhotoCache.bitmap(this@ClaimActivity, c.id, "bill"), photoView)
+                c.localPhoto.isNotBlank() && File(c.localPhoto).exists() -> showPhotoAsync(photoView!!, "local:${c.localPhoto}") { Img.decodeFile(c.localPhoto, screenW()) }
+                c.hasPhoto && PhotoCache.has(this@ClaimActivity, c.id, "bill") -> showPhotoAsync(photoView!!, "${c.id}:bill") { Img.decodeFile(PhotoCache.file(this@ClaimActivity, c.id, "bill").absolutePath, screenW()) }
                 c.hasPhoto -> photoView?.addView(pillButton(tr("Bill photo देखें", "View bill photo"), Ui.BRAND_LIGHT, Ui.TEXT, heightDp = 46, iconRes = R.drawable.ic_camera) { loadPhoto("bill", photoView!!) }, lp())
                 else -> photoView?.addView(note(tr("इस claim के साथ bill photo नहीं है।", "This claim has no bill photo."), Ui.SUN_LIGHT, Ui.SUN_TEXT))
             }
@@ -182,11 +186,31 @@ class ClaimActivity : AppCompatActivity() {
         }
     }
 
+    private fun screenW() = resources.displayMetrics.widthPixels
+
     private fun loadPhoto(which: String, box: LinearLayout) {
         busy(tr("Photo आ रही है…", "Loading photo…"), { Api.call(this, "billPhoto", JSONObject().put("claimId", claim.id).put("which", which), timeoutMs = 90000) }) { r ->
             val bytes = Base64.decode(r.optString("data"), Base64.DEFAULT)
-            PhotoCache.put(this, claim.id, which, bytes)
-            showImage(BitmapFactory.decodeByteArray(bytes, 0, bytes.size), box)
+            lifecycleScope.launch {
+                val bmp = withContext(Dispatchers.IO) {
+                    PhotoCache.put(this@ClaimActivity, claim.id, which, bytes)
+                    Img.decodeBytes(bytes, screenW())
+                }
+                Img.put("${claim.id}:$which", bmp)
+                if (!isFinishing) showImage(bmp, box)
+            }
+        }
+    }
+
+    /** Shows a cached bitmap at once, otherwise decodes it off the main thread and caches it. */
+    private fun showPhotoAsync(box: LinearLayout, key: String, decode: () -> android.graphics.Bitmap?) {
+        Img.get(key)?.let { showImage(it, box); return }
+        box.removeAllViews()
+        box.addView(text(tr("Photo आ रही है…", "Loading photo…"), 13f, Ui.MUTED), lp())
+        lifecycleScope.launch {
+            val bmp = withContext(Dispatchers.IO) { decode() }
+            Img.put(key, bmp)
+            if (!isFinishing) showImage(bmp, box)
         }
     }
 

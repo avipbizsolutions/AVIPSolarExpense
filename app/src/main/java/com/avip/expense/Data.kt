@@ -208,6 +208,36 @@ object PhotoCache {
     }
 }
 
+/** Decodes photos downsampled to the view size and keeps the decoded bitmaps in memory,
+ *  so a photo opens instantly the second time and never decodes at full resolution. */
+object Img {
+    private val mem = object : android.util.LruCache<String, Bitmap>((Runtime.getRuntime().maxMemory() / 8).toInt()) {
+        override fun sizeOf(key: String, value: Bitmap) = value.byteCount
+    }
+    fun get(key: String): Bitmap? = mem.get(key)
+    fun put(key: String, b: Bitmap?) { if (b != null) mem.put(key, b) }
+
+    private fun sample(w: Int, reqW: Int): Int {
+        var s = 1
+        if (reqW > 0) while (w / (s * 2) >= reqW) s *= 2
+        return s
+    }
+
+    fun decodeFile(path: String, reqW: Int): Bitmap? = try {
+        val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, o)
+        o.inSampleSize = sample(o.outWidth, reqW); o.inJustDecodeBounds = false
+        BitmapFactory.decodeFile(path, o)
+    } catch (_: Throwable) { null }
+
+    fun decodeBytes(bytes: ByteArray, reqW: Int): Bitmap? = try {
+        val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, o)
+        o.inSampleSize = sample(o.outWidth, reqW); o.inJustDecodeBounds = false
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, o)
+    } catch (_: Throwable) { null }
+}
+
 /** Bill photos: shrunk to a sensible size before they are sent. */
 object Photos {
     fun dir(c: Context): File = File(c.filesDir, "bills").apply { mkdirs() }

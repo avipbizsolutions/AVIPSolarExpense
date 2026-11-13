@@ -35,6 +35,9 @@ class TeamActivity : AppCompatActivity() {
     private var claimsCache = listOf<Claim>()
     private var advCache = listOf<Advance>()
     private var peopleCache = listOf<Balance>()
+    private var showAllAdv = false
+    private var showAllClaims = false
+    private val ROW_CAP = 60
     private var claimStatus = ""     // claims status filter ("" = all)
     private var person = ""          // shared person drill-down (advances + claims)
     private var rangeFrom = ""       // shared date range (inclusive)
@@ -155,7 +158,7 @@ class TeamActivity : AppCompatActivity() {
         val claimsLabel = tr("Claims", "Claims")
         body.addView(chips(listOf(advLabel, claimsLabel), if (tab == TAB_ADV) advLabel else claimsLabel) { pick ->
             val next = if (pick == claimsLabel) TAB_CLAIMS else TAB_ADV
-            if (next != tab) { tab = next; person = "" }
+            if (next != tab) { tab = next; person = ""; showAllAdv = false; showAllClaims = false }
             render()
         }, lp().margins(this, b = 10))
         dateSection()
@@ -215,7 +218,7 @@ class TeamActivity : AppCompatActivity() {
             addView(text(Fmt.rupees(shown.sumOf { it.amount }), 15f, Ui.TEXT, bold = true))
         }, lp().margins(this, t = 8, b = 8))
         if (shown.isEmpty() && !loadingAdv) body.addView(note(tr("इस दौरान कोई advance नहीं।", "No advances in this period.")))
-        shown.forEach { a ->
+        (if (showAllAdv) shown else shown.take(ROW_CAP)).forEach { a ->
             body.addView(card(14) {
                 addView(horizontal {
                     addView(vertical {
@@ -228,6 +231,9 @@ class TeamActivity : AppCompatActivity() {
                 })
             }, lp().margins(this, b = 8))
         }
+        if (!showAllAdv && shown.size > ROW_CAP) body.addView(text(tr("सभी ${shown.size} दिखाएँ", "Show all ${shown.size}"), 14f, Ui.BLUE, bold = true) {
+            setPadding(dp(4), dp(8), dp(4), dp(8)); setOnClickListener { showAllAdv = true; render() }
+        }, lp().margins(this, b = 8))
     }
 
     private fun renderClaims() {
@@ -277,11 +283,14 @@ class TeamActivity : AppCompatActivity() {
             addView(text(Fmt.rupees(shown.sumOf { it.amount }), 15f, Ui.TEXT, bold = true))
         }, lp().margins(this, t = 8, b = 8))
         if (shown.isEmpty() && !loadingClaims) body.addView(note(tr("इस दौरान कोई claim नहीं।", "No claims in this period.")))
-        shown.forEach { c ->
+        (if (showAllClaims) shown else shown.take(ROW_CAP)).forEach { c ->
             body.addView(claimRow(c, showMember = true, selected = null) {
                 startActivity(Intent(this, ClaimActivity::class.java).putExtra(ClaimActivity.EXTRA_ID, c.id))
             }, lp().margins(this, b = 8))
         }
+        if (!showAllClaims && shown.size > ROW_CAP) body.addView(text(tr("सभी ${shown.size} दिखाएँ", "Show all ${shown.size}"), 14f, Ui.BLUE, bold = true) {
+            setPadding(dp(4), dp(8), dp(4), dp(8)); setOnClickListener { showAllClaims = true; render() }
+        }, lp().margins(this, b = 8))
     }
 
     private fun dateBtn(label: String, iso: String, onClick: () -> Unit): View = vertical(10) {
