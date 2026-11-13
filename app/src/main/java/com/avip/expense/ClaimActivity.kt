@@ -113,7 +113,10 @@ class ClaimActivity : AppCompatActivity() {
                 if (local.isNotBlank() && File(local).exists()) showPhotoAsync(box, "local:$local") { Img.decodeFile(local, screenW()) }
                 else if (PhotoCache.has(this@ClaimActivity, c.id, which)) showPhotoAsync(box, "${c.id}:$which") { Img.decodeFile(PhotoCache.file(this@ClaimActivity, c.id, which).absolutePath, screenW()) }
                 else box.addView(pillButton(tr("$label देखें", "View $label".lowercase().replaceFirstChar { it.uppercase() }), Ui.BRAND_LIGHT, Ui.TEXT, heightDp = 44, iconRes = R.drawable.ic_camera) { loadPhoto(which, box) }, lp())
+                val reading = if (which == "odoStart") c.odoStart else c.odoEnd
+                if (reading > 0) addView(text(tr("भरा हुआ reading: ", "Reading entered: ") + Fmt.km(reading) + " km", 14f, Ui.TEXT, bold = true), lp().margins(context, t = 6, b = 2))
             }
+            if (c.odoStart > 0 && c.odoEnd > 0) addView(text(tr("कुल दूरी: ", "Distance: ") + Fmt.km(c.odoEnd - c.odoStart) + " km", 14.5f, Ui.BRAND_DARK, bold = true), lp().margins(context, t = 10))
         })
 
         body.addView(section("Bill photo") {
