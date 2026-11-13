@@ -32,8 +32,8 @@ class ClaimFormActivity : AppCompatActivity() {
 
     private var date = Fmt.today()
     private var category = ""
-    private var paidBy = "Self"
-    private var paymentMode = ""
+    private var paidBy = "Advance"
+    private var paymentMode = "Cash"
     private var photo = ""
 
     /** Fuel / Petrol: start and end odometer photo + reading. */
@@ -200,15 +200,16 @@ class ClaimFormActivity : AppCompatActivity() {
         showBike()
 
         body.addView(section(tr("पैसे किसने दिए", "Who paid") + " *") {
-            addView(chips(listOf(tr("अपने पैसे से", "Own money"), tr("Advance से", "From advance"), tr("Company ने दिया", "Paid by company")), tr("अपने पैसे से", "Own money")) { pick ->
-                paidBy = when (pick) { tr("Advance से", "From advance") -> "Advance"; tr("Company ने दिया", "Paid by company") -> "Company"; else -> "Self" }
+            addView(chips(listOf(tr("Advance से", "From advance"), tr("अपने पैसे से", "Own money")), tr("Advance से", "From advance")) { pick ->
+                paidBy = when (pick) { tr("Advance से", "From advance") -> "Advance"; else -> "Self" }
                 checkAdvance(bal)
             }, lp())
             advanceNote = text("", 13f, Ui.SUN_TEXT) { visibility = View.GONE }
             addView(advanceNote, lp().margins(context, t = 8))
-            addView(text(tr("अपने पैसे से = Office आपको वापस देगा। Advance से = आपके Advance में से कटेगा। Company ने दिया = Company ने सीधे pay किया।", "Own money = the office pays you back. From advance = deducted from your advance. Paid by company = AVIP paid directly."), 12.5f, Ui.MUTED), lp().margins(context, t = 8))
+            addView(text(tr("Advance से = आपके Advance में से कटेगा। अपने पैसे से = Office आपको वापस देगा।", "From advance = deducted from your advance. Own money = the office pays you back."), 12.5f, Ui.MUTED), lp().margins(context, t = 8))
             addView(label(req(tr("Payment कैसे किया", "How was it paid"))))
-            addView(chips(modes, "") { paymentMode = it }, lp())
+            addView(chips(modes, "Cash") { paymentMode = it }, lp())
+            checkAdvance(bal)
         })
 
         billSection = section("Bill", tr("Bill की साफ photo लगाएँ।", "Add a clear photo of the bill.")) {
