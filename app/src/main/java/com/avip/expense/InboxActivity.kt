@@ -35,6 +35,7 @@ class InboxActivity : AppCompatActivity() {
     private var tab = TAB_CLAIMS
 
     private var claims = listOf<Claim>()
+    private var blocked = listOf<Claim>()   // approve mode: pending claims only Atul/Rahul can approve
     private val selected = linkedSetOf<String>()
     private var advData: JSONObject? = null
     private var loadingClaims = false
@@ -72,10 +73,21 @@ class InboxActivity : AppCompatActivity() {
         }
     }
 
+    /** Approve mode: pending claims this approver may NOT decide (above the limit or from managers). */
+    private fun blockedFromCache(): List<Claim> {
+        if (pay) return emptyList()
+        val waiting = Actions.pendingRefs(this)
+        val me = Session.user(this)
+        return Claim.list(Store.load(this, "team")?.optJSONArray("claims")).filter {
+            it.status == Status.PENDING && it.memberId != me?.id && me?.canDecide(it, Settings.approvalLimit(this)) != true && it.id !in waiting
+        }
+    }
+
     private fun loadClaims() {
         if (loadingClaims) return
         loadingClaims = true
         if (claims.isEmpty()) claims = claimsFromCache()
+        if (blocked.isEmpty()) blocked = blockedFromCache()
         render()
         lifecycleScope.launch {
             val r = withContext(Dispatchers.IO) { runCatching { Api.call(this@InboxActivity, "teamClaims", JSONObject().put("status", claimStatus)) } }
@@ -93,10 +105,13 @@ class InboxActivity : AppCompatActivity() {
                 }
                 Store.save(this@InboxActivity, "team", JSONObject().put("claims", merged))
                 val me = Session.user(this@InboxActivity)
-                claims = Claim.list(o.optJSONArray("claims")).filter {
+                val limit = Settings.approvalLimit(this@InboxActivity)
+                val fresh = Claim.list(o.optJSONArray("claims"))
+                claims = fresh.filter {
                     if (pay) it.paidBy == "Self"
-                    else it.memberId != me?.id && me?.canDecide(it, Settings.approvalLimit(this@InboxActivity)) == true
+                    else it.memberId != me?.id && me?.canDecide(it, limit) == true
                 }
+                blocked = if (pay) emptyList() else fresh.filter { it.memberId != me?.id && me?.canDecide(it, limit) != true }
                 selected.retainAll(claims.map { it.id }.toSet())
             }
             loadingClaims = false
@@ -153,12 +168,10 @@ class InboxActivity : AppCompatActivity() {
 
     private fun renderClaims() {
         val me = Session.user(this)
-        if (!pay && me != null && !me.isAdmin) {
+        if (!pay && me != null && !me.isAdmin && blocked.isNotEmpty()) {
             val limit = Settings.approvalLimit(this)
-            val waiting = Claim.list(Store.load(this, "team")?.optJSONArray("claims"))
-                .count { it.status == Status.PENDING && it.memberId != me.id && !me.canDecide(it, limit) }
-            if (waiting > 0) body.addView(note(tr("$waiting claim (${Fmt.rupees(limit)} से ऊपर या Manager के) सिर्फ Atul या Rahul approve करेंगे।",
-                "$waiting claims (above ${Fmt.rupees(limit)} or from managers) can be approved only by Atul or Rahul."), Ui.SUN_LIGHT, Ui.SUN_TEXT), lp().margins(this, b = 10))
+            body.addView(note(tr("${blocked.size} claim (${Fmt.rupees(limit)} से ऊपर या Manager के) सिर्फ Atul या Rahul approve करेंगे।",
+                "${blocked.size} claims (above ${Fmt.rupees(limit)} or from managers) can be approved only by Atul or Rahul."), Ui.SUN_LIGHT, Ui.SUN_TEXT), lp().margins(this, b = 10))
         }
         val total = claims.sumOf { it.amount }
         body.addView(horizontal {
@@ -172,7 +185,7 @@ class InboxActivity : AppCompatActivity() {
                 setOnClickListener { if (all) selected.removeAll(claims.map { it.id }.toSet()) else selected.addAll(claims.map { it.id }); render() }
             })
         }
-        if (claims.isEmpty() && !loadingClaims) body.addView(note(if (pay) tr("कोई approved claim payment के लिए बाकी नहीं है।", "No approved claims waiting for payment.")
+        if (claims.isEmpty() && (pay || blocked.isEmpty()) && !loadingClaims) body.addView(note(if (pay) tr("कोई approved claim payment के लिए बाकी नहीं है।", "No approved claims waiting for payment.")
             else tr("कोई claim approval के लिए बाकी नहीं है।", "No claims waiting for approval.")))
         claims.forEach { c ->
             val row = claimRow(c, showMember = true, selected = c.id in selected) {
@@ -181,6 +194,17 @@ class InboxActivity : AppCompatActivity() {
             row.setOnLongClickListener { toggle(c.id); true }
             (row as LinearLayout).getChildAt(0).let { line -> (line as LinearLayout).getChildAt(0).setOnClickListener { toggle(c.id) } }
             body.addView(row, lp().margins(this, b = 8))
+        }
+        // claims this approver may not act on: shown greyed out, tap to view
+        if (!pay && blocked.isNotEmpty()) {
+            body.addView(text(tr("सिर्फ Atul / Rahul approve करेंगे", "Only Atul or Rahul can approve"), 15f, Ui.MUTED, bold = true), lp().margins(this, t = 12, b = 8))
+            blocked.forEach { c ->
+                val row = claimRow(c, showMember = true, selected = null) {
+                    startActivity(Intent(this, ClaimActivity::class.java).putExtra(ClaimActivity.EXTRA_ID, c.id))
+                }
+                row.alpha = 0.5f
+                body.addView(row, lp().margins(this, b = 8))
+            }
         }
         updateActionLabel()
     }
