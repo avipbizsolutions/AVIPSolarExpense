@@ -32,6 +32,7 @@ class InboxActivity : AppCompatActivity() {
     private lateinit var mode: String
     private lateinit var body: LinearLayout
     private var actionBtn: View? = null
+    private var swipe: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null
     private var tab = TAB_CLAIMS
 
     private var claims = listOf<Claim>()
@@ -52,7 +53,8 @@ class InboxActivity : AppCompatActivity() {
         actionBtn = if (pay) pillButton(tr("चुने हुए Paid mark करें", "Mark selected as paid"), Ui.GREEN, iconRes = R.drawable.ic_rupee) { payClaims() }
             else pillButton(tr("चुने हुए Approve करें", "Approve selected"), Ui.GREEN, iconRes = R.drawable.ic_check) { approveClaims() }
         body = screen(title, tr("Claims और Advances, एक जगह", "Claims and advances in one place"),
-            right = listOf(barButton(R.drawable.ic_refresh) { loadAll() }), bottom = actionBtn)
+            right = listOf(barButton(R.drawable.ic_refresh) { loadAll() }), bottom = actionBtn,
+            onRefresh = { loadAll() }, onSwipe = { swipe = it })
     }
 
     override fun onResume() {
@@ -84,7 +86,7 @@ class InboxActivity : AppCompatActivity() {
     }
 
     private fun loadClaims() {
-        if (loadingClaims) return
+        if (loadingClaims) { swipe?.isRefreshing = false; return }
         loadingClaims = true
         if (claims.isEmpty()) claims = claimsFromCache()
         if (blocked.isEmpty()) blocked = blockedFromCache()
@@ -124,7 +126,7 @@ class InboxActivity : AppCompatActivity() {
     // ------------------------------------------------------------------ advances (tap to review)
 
     private fun loadAdvances() {
-        if (loadingAdv) return
+        if (loadingAdv) { swipe?.isRefreshing = false; return }
         loadingAdv = true
         if (advData == null) advData = Store.load(this, "adv_req_team")
         render()
@@ -163,6 +165,7 @@ class InboxActivity : AppCompatActivity() {
 
         if (tab == TAB_CLAIMS) renderClaims() else renderAdvances()
         actionBtn?.visibility = if (tab == TAB_CLAIMS && claims.isNotEmpty()) View.VISIBLE else View.GONE
+        if (!loadingClaims && !loadingAdv) swipe?.isRefreshing = false
         body.addView(View(this), lp(MATCH, dp(20)))
     }
 

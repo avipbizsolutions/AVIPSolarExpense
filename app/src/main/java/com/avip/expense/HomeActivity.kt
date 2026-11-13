@@ -23,6 +23,7 @@ class HomeActivity : AppCompatActivity() {
 
     private lateinit var body: LinearLayout
     private lateinit var loading: ProgressBar
+    private var swipe: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null
     private var user: User? = null
     private var filter = "All"
 
@@ -72,7 +73,12 @@ class HomeActivity : AppCompatActivity() {
                 },
             )))
             addView(loading, lp(MATCH, dp(4)))
-            addView(android.widget.ScrollView(context).apply { isFillViewport = true; addView(body) }, lp(MATCH, 0, 1f))
+            addView(androidx.swiperefreshlayout.widget.SwipeRefreshLayout(context).apply {
+                swipe = this
+                setColorSchemeColors(Ui.BRAND)
+                setOnRefreshListener { refresh() }
+                addView(android.widget.ScrollView(context).apply { isFillViewport = true; addView(body) })
+            }, lp(MATCH, 0, 1f))
             addView(vertical {
                 setBackgroundColor(Color.WHITE)
                 setPadding(dp(16), dp(10), dp(16), dp(14))
@@ -94,7 +100,7 @@ class HomeActivity : AppCompatActivity() {
 
     /** Sends any claims waiting on the phone first, then loads everything in one request. */
     private fun refresh() {
-        if (loadingNow) return
+        if (loadingNow) { swipe?.isRefreshing = false; return }
         loadingNow = true
         loading.visibility = View.VISIBLE
         lifecycleScope.launch {
@@ -117,6 +123,7 @@ class HomeActivity : AppCompatActivity() {
                 }
             }
             loadingNow = false
+            swipe?.isRefreshing = false
             if (isFinishing) return@launch
             loading.visibility = View.GONE
             r.onFailure { e ->
@@ -154,51 +161,7 @@ class HomeActivity : AppCompatActivity() {
         body.removeAllViews()
         val boot = Store.load(this, "boot")
         val mine = Store.load(this, "mine")
-        val bal = Balance.from(mine?.optJSONObject("balance") ?: boot?.optJSONObject("balance"))
-
-        // ---- advance & money card
-        body.addView(card(18) {
-            background = gradient(dpf(18f), Ui.BRAND_DARK, Ui.BRAND)
-            addView(text(tr("Advance आपके पास", "Advance with you"), 13.5f, 0xCCFFFFFF.toInt()))
-            addView(text(Fmt.rupees(bal.advanceBalance), 32f, Color.WHITE, bold = true), lp().margins(context, t = 2))
-            addView(text(tr("मिला ${Fmt.rupees(bal.advanceGiven)} · Claims में adjust ${Fmt.rupees(bal.advanceAdjusted)}", "Given ${Fmt.rupees(bal.advanceGiven)} · adjusted in claims ${Fmt.rupees(bal.advanceAdjusted)}") +
-                if (bal.advancePending > 0) tr(" · Approval बाकी ${Fmt.rupees(bal.advancePending)}", " · pending approval ${Fmt.rupees(bal.advancePending)}") else "", 12.5f, 0xCCFFFFFF.toInt()),
-                lp().margins(context, t = 2))
-            addView(horizontal {
-                addView(stat(tr("Approval बाकी", "Pending approval"), bal.pendingApproval, Ui.SUN), lp(0, WRAP, 1f))
-                addView(stat(tr("Payment बाकी", "To be paid"), bal.toReimburse, 0xFF8EC5FF.toInt()), lp(0, WRAP, 1f))
-                addView(stat("Paid", bal.reimbursed, 0xFF7BD8A6.toInt()), lp(0, WRAP, 1f))
-            }, lp().margins(context, t = 16))
-            setOnClickListener { startActivity(Intent(this@HomeActivity, AdvancesActivity::class.java)) }
-        }, lp().margins(this, b = 6))
-        body.addView(horizontal {
-            gravity = Gravity.CENTER_VERTICAL
-            addView(text(tr("पूरी list के लिए ऊपर tap करें", "Tap above for all your advances"), 12f, Ui.MUTED), lp(0, WRAP, 1f))
-            addView(pillButton(tr("Advance माँगें", "Request advance"), Ui.BRAND_LIGHT, Ui.BRAND_DARK, heightDp = 40, iconRes = R.drawable.ic_plus) {
-                startActivity(Intent(this@HomeActivity, AdvanceRequestsActivity::class.java).putExtra(AdvanceRequestsActivity.EXTRA_MODE, AdvanceRequestsActivity.MODE_NEW))
-            })
-        }, lp().margins(this, b = 8))
-        // my advance requests that are still open
-        val queuedReqs = Actions.all(this).filter { it.optString("kind") == "requestAdvance" && it.optString("error").isBlank() }.map {
-            val q = it.getJSONObject("body").getJSONObject("request")
-            AdvRequest.from(JSONObject().put("id", q.optString("id")).put("amount", q.optDouble("amount")).put("purpose", q.optString("purpose")).put("status", AdvRequest.QUEUED))
-        }
-        (queuedReqs + AdvRequest.list(mine?.optJSONArray("advRequests")).filter { it.status == AdvRequest.PENDING || it.status == AdvRequest.APPROVED }).forEach { r ->
-            body.addView(card(12) {
-                addView(horizontal {
-                    gravity = Gravity.CENTER_VERTICAL
-                    addView(vertical {
-                        addView(text(tr("Advance request ", "Advance request ") + Fmt.rupees(r.amount), 14.5f, Ui.TEXT, bold = true))
-                        addView(text(r.purpose, 12.5f, Ui.MUTED))
-                    }, lp(0, WRAP, 1f))
-                    addView(reqPill(r.status))
-                })
-                isClickable = true
-                foreground = context.ripple()
-                setOnClickListener { startActivity(Intent(this@HomeActivity, AdvancesActivity::class.java)) }
-            }, lp().margins(this, b = 8))
-        }
-        body.addView(View(this), lp(MATCH, dp(4)))
+        // the "Advance with you" card is rendered just above "My claims" (see addAdvanceSection)
 
         // ---- role tiles
         runCatching {
@@ -285,6 +248,9 @@ class HomeActivity : AppCompatActivity() {
         }
         }.onFailure { }
 
+        // ---- advance & money card (just above My claims)
+        runCatching { addAdvanceSection(boot, mine) }
+
         // ---- my claims
         val queued = runCatching { Outbox.asClaims(this) }.getOrDefault(emptyList())
         val claims = queued + Claim.list(mine?.optJSONArray("claims"))
@@ -304,6 +270,51 @@ class HomeActivity : AppCompatActivity() {
         }
         shown.forEach { c -> runCatching { body.addView(claimRow(c, showMember = false) { open(c) }, lp().margins(this, b = 8)) } }
         body.addView(View(this), lp(MATCH, dp(20)))
+    }
+
+    /** The "Advance with you" card, the Request-advance button, and any open advance requests. */
+    private fun addAdvanceSection(boot: JSONObject?, mine: JSONObject?) {
+        val bal = Balance.from(mine?.optJSONObject("balance") ?: boot?.optJSONObject("balance"))
+        body.addView(card(18) {
+            background = gradient(dpf(18f), Ui.BRAND_DARK, Ui.BRAND)
+            addView(text(tr("Advance आपके पास", "Advance with you"), 13.5f, 0xCCFFFFFF.toInt()))
+            addView(text(Fmt.rupees(bal.advanceBalance), 32f, Color.WHITE, bold = true), lp().margins(context, t = 2))
+            addView(text(tr("मिला ${Fmt.rupees(bal.advanceGiven)} · Claims में adjust ${Fmt.rupees(bal.advanceAdjusted)}", "Given ${Fmt.rupees(bal.advanceGiven)} · adjusted in claims ${Fmt.rupees(bal.advanceAdjusted)}") +
+                if (bal.advancePending > 0) tr(" · Approval बाकी ${Fmt.rupees(bal.advancePending)}", " · pending approval ${Fmt.rupees(bal.advancePending)}") else "", 12.5f, 0xCCFFFFFF.toInt()),
+                lp().margins(context, t = 2))
+            addView(horizontal {
+                addView(stat(tr("Approval बाकी", "Pending approval"), bal.pendingApproval, Ui.SUN), lp(0, WRAP, 1f))
+                addView(stat(tr("Payment बाकी", "To be paid"), bal.toReimburse, 0xFF8EC5FF.toInt()), lp(0, WRAP, 1f))
+                addView(stat("Paid", bal.reimbursed, 0xFF7BD8A6.toInt()), lp(0, WRAP, 1f))
+            }, lp().margins(context, t = 16))
+            setOnClickListener { startActivity(Intent(this@HomeActivity, AdvancesActivity::class.java)) }
+        }, lp().margins(this, t = 4, b = 6))
+        body.addView(horizontal {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(text(tr("पूरी list के लिए ऊपर tap करें", "Tap above for all your advances"), 12f, Ui.MUTED), lp(0, WRAP, 1f))
+            addView(pillButton(tr("Advance माँगें", "Request advance"), Ui.BRAND_LIGHT, Ui.BRAND_DARK, heightDp = 40, iconRes = R.drawable.ic_plus) {
+                startActivity(Intent(this@HomeActivity, AdvanceRequestsActivity::class.java).putExtra(AdvanceRequestsActivity.EXTRA_MODE, AdvanceRequestsActivity.MODE_NEW))
+            })
+        }, lp().margins(this, b = 8))
+        val queuedReqs = Actions.all(this).filter { it.optString("kind") == "requestAdvance" && it.optString("error").isBlank() }.map {
+            val q = it.getJSONObject("body").getJSONObject("request")
+            AdvRequest.from(JSONObject().put("id", q.optString("id")).put("amount", q.optDouble("amount")).put("purpose", q.optString("purpose")).put("status", AdvRequest.QUEUED))
+        }
+        (queuedReqs + AdvRequest.list(mine?.optJSONArray("advRequests")).filter { it.status == AdvRequest.PENDING || it.status == AdvRequest.APPROVED }).forEach { r ->
+            body.addView(card(12) {
+                addView(horizontal {
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(vertical {
+                        addView(text(tr("Advance request ", "Advance request ") + Fmt.rupees(r.amount), 14.5f, Ui.TEXT, bold = true))
+                        addView(text(r.purpose, 12.5f, Ui.MUTED))
+                    }, lp(0, WRAP, 1f))
+                    addView(reqPill(r.status))
+                })
+                isClickable = true
+                foreground = context.ripple()
+                setOnClickListener { startActivity(Intent(this@HomeActivity, AdvancesActivity::class.java)) }
+            }, lp().margins(this, b = 8))
+        }
     }
 
     private fun stat(label: String, value: Double, color: Int): View = vertical {

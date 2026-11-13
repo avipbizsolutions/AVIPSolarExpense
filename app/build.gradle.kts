@@ -61,6 +61,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     // reads the odometer number from the photo, on the phone (model comes with Google Play services)
     implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.1")
     // GPS camera, same as AVIP GPSCam

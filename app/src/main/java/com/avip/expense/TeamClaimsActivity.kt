@@ -30,6 +30,7 @@ class TeamClaimsActivity : AppCompatActivity() {
     private lateinit var mode: String
     private lateinit var body: LinearLayout
     private lateinit var actionBtn: View
+    private var swipe: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null
     private var claims = listOf<Claim>()
     private val selected = linkedSetOf<String>()
     private var status = ""
@@ -46,7 +47,8 @@ class TeamClaimsActivity : AppCompatActivity() {
             MODE_PAY -> pillButton(tr("चुने हुए Paid mark करें", "Mark selected as paid"), Ui.GREEN, iconRes = R.drawable.ic_rupee) { paySelected() }
             else -> null
         }
-        body = screen(title, "Tap = details" + if (bottom != null) tr(" · ☐ = चुनें", " · ☐ = select") else "", right = listOf(barButton(R.drawable.ic_refresh) { load() }), bottom = bottom)
+        body = screen(title, "Tap = details" + if (bottom != null) tr(" · ☐ = चुनें", " · ☐ = select") else "", right = listOf(barButton(R.drawable.ic_refresh) { load() }), bottom = bottom,
+            onRefresh = { load() }, onSwipe = { swipe = it })
         if (bottom != null) actionBtn = bottom
         status = when (mode) { MODE_APPROVE -> Status.PENDING; MODE_PAY -> Status.APPROVED; else -> "" }
     }
@@ -70,7 +72,7 @@ class TeamClaimsActivity : AppCompatActivity() {
     }
 
     private fun load() {
-        if (loading) return
+        if (loading) { swipe?.isRefreshing = false; return }
         loading = true
         if (claims.isEmpty()) claims = fromCache()
         render()
@@ -104,6 +106,7 @@ class TeamClaimsActivity : AppCompatActivity() {
                 selected.retainAll(claims.map { it.id }.toSet())
             }
             loading = false
+            swipe?.isRefreshing = false
             if (isFinishing) return@launch
             render()
             r.onFailure { showError(it) }

@@ -99,6 +99,7 @@ class AdvanceRequestsActivity : AppCompatActivity() {
     }
 
     private lateinit var body: LinearLayout
+    private var swipe: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null
     private var mode = MODE_APPROVE
     private var data: JSONObject? = null
     private var loading = false
@@ -118,7 +119,8 @@ class AdvanceRequestsActivity : AppCompatActivity() {
                     else -> tr("Advance Approve करें", "Approve advances")
                 }
                 body = screen(title, tr("पुराने advance का हाल साथ में", "With each person's earlier advances"),
-                    right = listOf(barButton(R.drawable.ic_refresh) { load() }))
+                    right = listOf(barButton(R.drawable.ic_refresh) { load() }),
+                    onRefresh = { load() }, onSwipe = { swipe = it })
                 load()
             }
         }
@@ -179,13 +181,14 @@ class AdvanceRequestsActivity : AppCompatActivity() {
     // ------------------------------------------------------------------ team lists
 
     private fun load() {
-        if (loading) return
+        if (loading) { swipe?.isRefreshing = false; return }
         loading = true
         if (data == null) data = Store.load(this, CACHE)
         render()
         lifecycleScope.launch {
             val r = withContext(Dispatchers.IO) { runCatching { Api.call(this@AdvanceRequestsActivity, "advanceRequests", JSONObject().put("team", true)) } }
             loading = false
+            swipe?.isRefreshing = false
             if (isFinishing) return@launch
             r.onSuccess { data = it; Store.save(this@AdvanceRequestsActivity, CACHE, it) }
             render()

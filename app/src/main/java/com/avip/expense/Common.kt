@@ -14,6 +14,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -116,15 +117,23 @@ fun android.content.Context.statusPill(status: String): TextView {
 fun Activity.screen(
     title: String, subtitle: String? = null, right: List<View> = emptyList(),
     bottom: View? = null, onBack: (() -> Unit)? = null,
+    onRefresh: (() -> Unit)? = null, onSwipe: ((SwipeRefreshLayout) -> Unit)? = null,
 ): LinearLayout {
     val body = vertical(16)
     val root = vertical {
         setBackgroundColor(Ui.BG)
         addView(topBar(title, subtitle, right = right, onBack = onBack))
-        addView(ScrollView(context).apply {
+        val scroll = ScrollView(context).apply {
             isFillViewport = true
             addView(body)
-        }, lp(MATCH, 0, 1f))
+        }
+        val scrollArea: View = if (onRefresh != null) SwipeRefreshLayout(context).apply {
+            setColorSchemeColors(Ui.BRAND)
+            addView(scroll)
+            setOnRefreshListener { onRefresh() }
+            onSwipe?.invoke(this)
+        } else scroll
+        addView(scrollArea, lp(MATCH, 0, 1f))
         if (bottom != null) addView(vertical {
             setBackgroundColor(Color.WHITE)
             setPadding(dp(16), dp(10), dp(16), dp(14))

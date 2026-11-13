@@ -23,6 +23,7 @@ class AdvancesActivity : AppCompatActivity() {
     companion object { const val EXTRA_TEAM = "team" }
 
     private lateinit var body: LinearLayout
+    private var swipe: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null
     private var team = false
     private var data: JSONObject? = null
     private var person = ""
@@ -36,7 +37,8 @@ class AdvancesActivity : AppCompatActivity() {
                 startActivity(android.content.Intent(this, AdvanceRequestsActivity::class.java).putExtra(AdvanceRequestsActivity.EXTRA_MODE, AdvanceRequestsActivity.MODE_NEW))
             } else null
         body = screen(if (team) tr("Team के Advance", "Team advances") else tr("मेरे Advance", "My advances"), if (team) tr("हर व्यक्ति का balance", "Balance of each person") else u.name,
-            right = listOf(barButton(R.drawable.ic_refresh) { load() }), bottom = bottom)
+            right = listOf(barButton(R.drawable.ic_refresh) { load() }), bottom = bottom,
+            onRefresh = { load() }, onSwipe = { swipe = it })
         load()
     }
 
@@ -44,13 +46,14 @@ class AdvancesActivity : AppCompatActivity() {
     private val cacheKey get() = if (team) "adv_team" else "adv_me"
 
     private fun load() {
-        if (loading) return
+        if (loading) { swipe?.isRefreshing = false; return }
         loading = true
         if (data == null) data = Store.load(this, cacheKey)
         render()
         lifecycleScope.launch {
             val r = withContext(Dispatchers.IO) { runCatching { Api.call(this@AdvancesActivity, "advances", JSONObject().put("team", team)) } }
             loading = false
+            swipe?.isRefreshing = false
             if (isFinishing) return@launch
             r.onSuccess { data = it; Store.save(this@AdvancesActivity, cacheKey, it) }
             render()
