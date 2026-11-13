@@ -201,6 +201,7 @@ class HomeActivity : AppCompatActivity() {
         body.addView(View(this), lp(MATCH, dp(4)))
 
         // ---- role tiles
+        runCatching {
         val counts = boot?.optJSONObject("counts") ?: JSONObject()
         if (u.canApprove || u.isAccounts) {
             val row = horizontal { }
@@ -212,11 +213,12 @@ class HomeActivity : AppCompatActivity() {
             if (u.isAccounts) row.addView(tile(tr("Payment करें", "Payments"), counts.optInt("toPay") + counts.optInt("advToPay"), R.drawable.ic_rupee, Ui.GREEN) {
                 startActivity(Intent(this, InboxActivity::class.java).putExtra(InboxActivity.EXTRA_MODE, InboxActivity.MODE_PAY))
             }, lp(0, WRAP, 1f).margins(this, r = 8))
-            if (u.isAccounts) row.addView(tile(tr("Team के Advance", "Team advances"), -1, R.drawable.ic_person, Ui.TEAL) {
+            // Team advances: accounts see everyone; approvers see the team but not the founders' advances
+            if (u.isAccounts || u.canApprove) row.addView(tile(tr("Team के Advance", "Team advances"), -1, R.drawable.ic_person, Ui.TEAL) {
                 startActivity(Intent(this, AdvancesActivity::class.java).putExtra(AdvancesActivity.EXTRA_TEAM, true))
             }, lp(0, WRAP, 1f))
             // keep a lone tile at half width rather than stretching across the row
-            val tileCount = (if (u.canApprove) 1 else 0) + (if (u.isAccounts) 2 else 0)
+            val tileCount = (if (u.canApprove) 1 else 0) + (if (u.isAccounts) 1 else 0) + (if (u.isAccounts || u.canApprove) 1 else 0)
             if (tileCount == 1) row.addView(View(this), lp(0, WRAP, 1f))
             body.addView(row, lp().margins(this, b = 8))
             body.addView(text(tr("Team के सारे Claims", "All team claims"), 14f, Ui.BLUE, bold = true) {
@@ -226,8 +228,10 @@ class HomeActivity : AppCompatActivity() {
                 }
             }, lp().margins(this, b = 8))
         }
+        }.onFailure { showError(it) }
 
         // ---- actions done without internet, waiting to be sent
+        runCatching {
         val acts = Actions.all(this)
         if (acts.isNotEmpty()) {
             body.addView(card(14) {
@@ -249,8 +253,10 @@ class HomeActivity : AppCompatActivity() {
                 }
             }, lp().margins(this, b = 10))
         }
+        }.onFailure { }
 
         // ---- bike journeys in progress (drafts on this phone)
+        runCatching {
         val drafts = Journeys.all(this)
         if (drafts.isNotEmpty()) {
             body.addView(text(tr("चल रही Journey (Draft)", "Journeys in progress (drafts)"), 18f, Ui.TEXT, bold = true), lp().margins(this, t = 4, b = 8))
@@ -277,9 +283,10 @@ class HomeActivity : AppCompatActivity() {
                 }, lp().margins(this, b = 8))
             }
         }
+        }.onFailure { }
 
         // ---- my claims
-        val queued = Outbox.asClaims(this)
+        val queued = runCatching { Outbox.asClaims(this) }.getOrDefault(emptyList())
         val claims = queued + Claim.list(mine?.optJSONArray("claims"))
         body.addView(horizontal {
             addView(text(tr("मेरे Claims", "My claims"), 18f, Ui.TEXT, bold = true), lp(0, WRAP, 1f))
@@ -295,7 +302,7 @@ class HomeActivity : AppCompatActivity() {
         if (shown.isEmpty()) {
             body.addView(note(if (claims.isEmpty()) tr("अभी कोई Claim नहीं है। नीचे \"नया Claim डालें\" दबाएँ।", "No claims yet. Tap \"Add new claim\" below.") else tr("इस filter में कोई Claim नहीं।", "No claims in this filter.")))
         }
-        shown.forEach { c -> body.addView(claimRow(c, showMember = false) { open(c) }, lp().margins(this, b = 8)) }
+        shown.forEach { c -> runCatching { body.addView(claimRow(c, showMember = false) { open(c) }, lp().margins(this, b = 8)) } }
         body.addView(View(this), lp(MATCH, dp(20)))
     }
 

@@ -657,9 +657,15 @@ function advances(d) {
     };
   }
   const people = authUsers_(APP);
+  // a plain approver (manager) sees the team's advances, but not the founders' (Admins')
+  const hideFounders = canApprove(u) && !isAccounts(u) && !isAdmin(u);
+  const isFounderName = {};
+  if (hideFounders) people.forEach(function (p) { if (clean(p.role) === 'Admin') isFounderName[clean(p.name).toLowerCase()] = true; });
+  const visiblePeople = hideFounders ? people.filter(function (p) { return clean(p.role) !== 'Admin'; }) : people;
+  const visibleAdvs = hideFounders ? advs.filter(function (a) { return !isFounderName[clean(a['Team Member']).toLowerCase()]; }) : advs;
   return {
-    advances: advs.map(advOut).reverse().slice(0, 500),
-    people: people.map(function (p) {
+    advances: visibleAdvs.map(advOut).reverse().slice(0, 500),
+    people: visiblePeople.map(function (p) {
       const b = balanceFor(p.name, p.id, claims, advs);
       b.id = p.id; b.name = p.name; b.team = p.team;
       return b;
