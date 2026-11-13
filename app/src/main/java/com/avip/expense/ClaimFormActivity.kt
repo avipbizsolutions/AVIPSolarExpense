@@ -334,10 +334,12 @@ class ClaimFormActivity : AppCompatActivity() {
     private fun checkAdvance(bal: Balance) {
         if (paidBy != "Advance") { advanceNote.visibility = View.GONE; return }
         val a = amount.text.toString().toDoubleOrNull() ?: 0.0
+        val over = a > bal.advanceBalance && bal.advanceBalance >= 0
         advanceNote.visibility = View.VISIBLE
         advanceNote.text = tr("आपके पास Advance: ${Fmt.rupees(bal.advanceBalance)}", "Advance with you: ${Fmt.rupees(bal.advanceBalance)}") +
-            if (a > bal.advanceBalance) tr("\nयह claim Advance से ज़्यादा है। बाकी के लिए अलग claim \"अपने पैसे से\" डालें।", "\nThis claim is more than your advance. Add a separate \"Own money\" claim for the rest.") else ""
-        advanceNote.setTextColor(if (a > bal.advanceBalance) Ui.DANGER else Ui.SUN_TEXT)
+            if (over) tr("\n${Fmt.rupees(bal.advanceBalance)} Advance से कटेगा, बाकी ${Fmt.rupees(a - bal.advanceBalance)} Accounts आपको pay करेगा।",
+                "\n${Fmt.rupees(bal.advanceBalance)} comes from your advance; the rest ${Fmt.rupees(a - bal.advanceBalance)} will be paid to you by Accounts.") else ""
+        advanceNote.setTextColor(if (over) Ui.SUN_TEXT else Ui.SUN_TEXT)
     }
 
     private fun openCamera() {

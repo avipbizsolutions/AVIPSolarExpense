@@ -334,7 +334,9 @@ function balanceFor(name, id, claims, advs) {
   const sum = function (filter) { return mine.filter(filter).reduce(function (s, c) { return s + num(c['Amount (₹)']); }, 0); };
   const st = function (c) { return clean(c['Status']) || ST.PENDING; };
   const pb = function (c) { return clean(c['Paid By']); };
-  const adjusted = sum(function (c) { return pb(c) === 'Advance' && (st(c) === ST.APPROVED || st(c) === ST.REIMBURSED); });
+  // advance claims draw the advance down only as far as it goes — the balance never reads negative
+  const advClaims = sum(function (c) { return pb(c) === 'Advance' && (st(c) === ST.APPROVED || st(c) === ST.REIMBURSED); });
+  const adjusted = Math.min(advClaims, given);
   return {
     advanceGiven: money(given),
     advanceAdjusted: money(adjusted),
@@ -463,6 +465,21 @@ function submitClaim(d) {
     const link = d.photo ? saveBill(id, u, d.photo) : '';
     const startLink = fuel ? saveBill(id, u, d.odoStartPhoto, 'start odometer') : '';
     const endLink = fuel ? saveBill(id, u, d.odoEndPhoto, 'end odometer') : '';
+
+    // From-advance claim bigger than the advance left: the advance covers what it can
+    // (never below zero) and the rest becomes a reimbursement the accounts team pays.
+    let payBy = paidBy;
+    let mainAmt = amount;
+    let extra = 0;
+    if (!fuel && paidBy === 'Advance') {
+      const bal = balanceFor(u.name, u.id, rows(LOG), rows(ADV));
+      const avail = Math.max(0, money(bal.advanceBalance - bal.advancePending));
+      if (amount > avail) {
+        if (avail > 0) { mainAmt = avail; extra = money(amount - avail); }
+        else { payBy = 'Self'; }
+      }
+    }
+
     const row = append(LOG, {
       'Date': toDate(c.date),
       'Bill / Voucher No.': "'" + clean(c.billNo, 40),
@@ -472,9 +489,9 @@ function submitClaim(d) {
       'Customer / Site': clean(c.site, 100),
       'District / Location': clean(c.district, 80),
       'KM Travelled': km > 0 ? (fuel ? km : Math.round(km)) : '',
-      'Amount (₹)': amount,
+      'Amount (₹)': mainAmt,
       'Payment Mode': clean(c.paymentMode, 30),
-      'Paid By': paidBy,
+      'Paid By': payBy,
       'Bill Photo Link': link,
       'Status': ST.PENDING,
       'Claim ID': id,
@@ -489,6 +506,25 @@ function submitClaim(d) {
       'End Photo Time': fuel ? endStamp.time : '',
       'Bike': fuel ? (companyBike ? 'Company bike – ' + bikeNo : 'Own bike') : '',
     });
+    if (extra > 0) {
+      append(LOG, {
+        'Date': toDate(c.date),
+        'Bill / Voucher No.': "'" + clean(c.billNo, 40),
+        'Team Member': u.name,
+        'Category': category,
+        'Description / Purpose': description + ' (Advance से ज़्यादा — बाकी reimburse)',
+        'Customer / Site': clean(c.site, 100),
+        'District / Location': clean(c.district, 80),
+        'Amount (₹)': extra,
+        'Payment Mode': clean(c.paymentMode, 30),
+        'Paid By': 'Self',
+        'Bill Photo Link': link,
+        'Status': ST.PENDING,
+        'Claim ID': id + '-R',
+        'Submitted On': now(),
+        'Employee ID': u.id,
+      });
+    }
     SpreadsheetApp.flush();
     const saved = rows(LOG).filter(function (r) { return r._row === row; })[0];
     return { claim: claimOut(saved, false) };
