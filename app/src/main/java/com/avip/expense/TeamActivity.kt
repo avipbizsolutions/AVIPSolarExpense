@@ -170,7 +170,7 @@ class TeamActivity : AppCompatActivity() {
         val hi = maxOf(Fmt.parseIso(rangeFrom) ?: 0L, Fmt.parseIso(rangeTo) ?: 0L) + 86400000 - 1
         body.addView(horizontal {
             gravity = Gravity.CENTER_VERTICAL
-            addView(dateBtn(tr("से", "From"), rangeFrom) { pickDate(rangeFrom.ifBlank { Fmt.today() }) { d -> rangeFrom = d; render() } }, lp(0, WRAP, 1f).margins(this, r = 8))
+            addView(dateBtn(tr("से", "From"), rangeFrom) { pickDate(rangeFrom.ifBlank { Fmt.today() }) { d -> rangeFrom = d; render() } }, lp(0, WRAP, 1f).margins(context, r = 8))
             addView(dateBtn(tr("तक", "To"), rangeTo) { pickDate(rangeTo.ifBlank { Fmt.today() }) { d -> rangeTo = d; render() } }, lp(0, WRAP, 1f))
         }, lp().margins(this, b = 6))
         body.addView(text(tr("पिछले 30 दिन", "Last 30 days"), 13f, Ui.BLUE, bold = true) {
