@@ -176,9 +176,21 @@ function rows(name) {
 /** Writes only the given columns (never the formula columns Month and Team). */
 function setFields(name, row, obj) {
   const t = table(name);
-  // every column is checked first, so a missing column never leaves a half-written row
-  const cols = Object.keys(obj).map(function (k) { return [t.col(k), obj[k] === undefined || obj[k] === null ? '' : obj[k]]; });
-  cols.forEach(function (cv) { t.sh.getRange(row, cv[0]).setValue(cv[1]); });
+  // [column, value] pairs, sorted; each contiguous run is written in ONE setValues,
+  // so a run is all-or-nothing — a rejected cell can never leave a half-written row.
+  const cells = Object.keys(obj).map(function (k) {
+    const v = obj[k];
+    return [t.col(k), v === undefined || v === null ? '' : v];
+  }).sort(function (a, b) { return a[0] - b[0]; });
+  let i = 0;
+  while (i < cells.length) {
+    let j = i;
+    while (j + 1 < cells.length && cells[j + 1][0] === cells[j][0] + 1) j++;
+    const vals = [];
+    for (let k = i; k <= j; k++) vals.push(cells[k][1]);
+    t.sh.getRange(row, cells[i][0], 1, vals.length).setValues([vals]);
+    i = j + 1;
+  }
 }
 
 function append(name, obj) {
@@ -662,7 +674,9 @@ function advances(d) {
   const isFounderName = {};
   if (hideFounders) people.forEach(function (p) { if (clean(p.role) === 'Admin') isFounderName[clean(p.name).toLowerCase()] = true; });
   const visiblePeople = hideFounders ? people.filter(function (p) { return clean(p.role) !== 'Admin'; }) : people;
-  const visibleAdvs = hideFounders ? advs.filter(function (a) { return !isFounderName[clean(a['Team Member']).toLowerCase()]; }) : advs;
+  // skip any stray row with no team member (e.g. an old half-written row)
+  const named = advs.filter(function (a) { return clean(a['Team Member']) !== ''; });
+  const visibleAdvs = hideFounders ? named.filter(function (a) { return !isFounderName[clean(a['Team Member']).toLowerCase()]; }) : named;
   return {
     advances: visibleAdvs.map(advOut).reverse().slice(0, 500),
     people: visiblePeople.map(function (p) {
