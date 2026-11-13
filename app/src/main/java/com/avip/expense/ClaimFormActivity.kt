@@ -67,6 +67,7 @@ class ClaimFormActivity : AppCompatActivity() {
     private lateinit var body: LinearLayout
     private lateinit var dateBtn: android.widget.TextView
     private lateinit var catBtn: android.widget.TextView
+    private var notice: android.widget.TextView? = null
     private lateinit var amount: EditText
     private lateinit var desc: EditText
     private lateinit var site: EditText
@@ -192,8 +193,8 @@ class ClaimFormActivity : AppCompatActivity() {
                 setPadding(dp(12), dp(12), dp(12), dp(12))
             }
             addView(fuelSum, lp().margins(context, t = 10))
-            draftBtn = pillButton(tr("Journey शुरू · Draft save करें", "Journey started · save draft"), Ui.BRAND_LIGHT, Ui.BRAND_DARK, iconRes = R.drawable.ic_history, heightDp = 44) { saveDraft() }
-            addView(draftBtn, lp().margins(context, t = 10))
+            draftBtn = pillButton(tr("Draft Save करें (बाद में पूरा करें)", "Save draft — finish later"), Ui.BRAND, iconRes = R.drawable.ic_history, heightDp = 54) { saveDraft() }
+            addView(draftBtn, lp().margins(context, t = 12))
         }.apply { visibility = View.GONE }
         body.addView(fuelBox)
         showBike()
@@ -211,8 +212,8 @@ class ClaimFormActivity : AppCompatActivity() {
         })
 
         billSection = section("Bill", tr("Bill की साफ photo लगाएँ।", "Add a clear photo of the bill.")) {
-            addView(marquee(tr("⚠ ₹500 से ऊपर के हर खर्च के लिए bill की photo ज़रूरी है — बिना bill के claim reject हो सकता है।   ⚠ Fuel / Petrol (अपनी bike) में odometer की GPS photos ही काफी हैं।   ⚠ Company bike: petrol bill ज़रूरी है।",
-                "⚠ A bill photo is required for every expense above ₹500. Claims without a bill may be rejected.   ⚠ Fuel / petrol (own bike): the odometer GPS photos are enough.   ⚠ Company bike: the petrol bill is required.")), lp().margins(context, b = 10))
+            notice = marquee(noticeText())
+            addView(notice, lp().margins(context, b = 10))
             photoBox = vertical { }
             addView(photoBox, lp())
             addView(horizontal {
@@ -253,9 +254,24 @@ class ClaimFormActivity : AppCompatActivity() {
         updateFuel()
     }
 
+    /** The bill notice: the ₹500 rule always, plus the fuel/bike lines only for Fuel / Petrol. */
+    private fun noticeText(): String {
+        val base = tr("⚠ ₹500 से ऊपर के हर खर्च के लिए bill की photo ज़रूरी है — बिना bill के claim reject हो सकता है।",
+            "⚠ A bill photo is required for every expense above ₹500. Claims without a bill may be rejected.")
+        if (!Settings.isFuel(category)) return base
+        return base + tr("   ⚠ Fuel / Petrol (अपनी bike) में odometer की GPS photos ही काफी हैं।   ⚠ Company bike: petrol bill ज़रूरी है।",
+            "   ⚠ Fuel / petrol (own bike): the odometer GPS photos are enough.   ⚠ Company bike: the petrol bill is required.")
+    }
+
+    private fun updateNotice() {
+        val t = noticeText()
+        notice?.apply { text = "$t          $t"; isSelected = true }
+    }
+
     /** Own-bike fuel is paid per km with no bill, so the Bill section is hidden for it. */
     private fun updateBill() {
         if (!::billSection.isInitialized) return
+        updateNotice()
         val hide = Settings.isFuel(category) && bike == "Own"
         billSection.visibility = if (hide) View.GONE else View.VISIBLE
     }
