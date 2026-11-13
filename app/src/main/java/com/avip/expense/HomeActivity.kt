@@ -177,19 +177,11 @@ class HomeActivity : AppCompatActivity() {
                 startActivity(Intent(this, InboxActivity::class.java).putExtra(InboxActivity.EXTRA_MODE, InboxActivity.MODE_PAY))
             }, lp(0, WRAP, 1f).margins(this, r = 8))
             // Team advances: accounts see everyone; approvers see the team but not the founders' advances
-            if (u.isAccounts || u.canApprove) row.addView(tile(tr("Team के Advance", "Team advances"), -1, R.drawable.ic_person, Ui.TEAL) {
-                startActivity(Intent(this, AdvancesActivity::class.java).putExtra(AdvancesActivity.EXTRA_TEAM, true))
+            // Team: advances + all team claims, one screen with a toggle (accounts see everyone; approvers minus founders)
+            if (u.isAccounts || u.canApprove) row.addView(tile(tr("Team का हिसाब", "Team records"), -1, R.drawable.ic_history, Ui.TEAL) {
+                startActivity(Intent(this, TeamActivity::class.java))
             }, lp(0, WRAP, 1f))
-            // keep a lone tile at half width rather than stretching across the row
-            val tileCount = (if (u.canApprove) 1 else 0) + (if (u.isAccounts) 1 else 0) + (if (u.isAccounts || u.canApprove) 1 else 0)
-            if (tileCount == 1) row.addView(View(this), lp(0, WRAP, 1f))
             body.addView(row, lp().margins(this, b = 8))
-            body.addView(text(tr("Team के सारे Claims", "All team claims"), 14f, Ui.BLUE, bold = true) {
-                setPadding(dp(4), dp(8), dp(4), dp(8))
-                setOnClickListener {
-                    startActivity(Intent(this@HomeActivity, TeamClaimsActivity::class.java).putExtra(TeamClaimsActivity.EXTRA_MODE, TeamClaimsActivity.MODE_ALL))
-                }
-            }, lp().margins(this, b = 8))
         }
         }.onFailure { showError(it) }
 
@@ -278,7 +270,13 @@ class HomeActivity : AppCompatActivity() {
         body.addView(card(18) {
             background = gradient(dpf(18f), Ui.BRAND_DARK, Ui.BRAND)
             addView(text(tr("Advance आपके पास", "Advance with you"), 13.5f, 0xCCFFFFFF.toInt()))
-            addView(text(Fmt.rupees(bal.advanceBalance), 32f, Color.WHITE, bold = true), lp().margins(context, t = 2))
+            addView(horizontal {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(text(Fmt.rupees(bal.advanceBalance), 32f, Color.WHITE, bold = true) { maxLines = 1 }, lp(0, WRAP, 1f))
+                addView(pillButton(tr("Advance माँगें", "Request advance"), Color.WHITE, Ui.BRAND_DARK, heightDp = 38, iconRes = R.drawable.ic_plus) {
+                    startActivity(Intent(this@HomeActivity, AdvanceRequestsActivity::class.java).putExtra(AdvanceRequestsActivity.EXTRA_MODE, AdvanceRequestsActivity.MODE_NEW))
+                })
+            }, lp().margins(context, t = 4))
             addView(text(tr("मिला ${Fmt.rupees(bal.advanceGiven)} · Claims में adjust ${Fmt.rupees(bal.advanceAdjusted)}", "Given ${Fmt.rupees(bal.advanceGiven)} · adjusted in claims ${Fmt.rupees(bal.advanceAdjusted)}") +
                 if (bal.advancePending > 0) tr(" · Approval बाकी ${Fmt.rupees(bal.advancePending)}", " · pending approval ${Fmt.rupees(bal.advancePending)}") else "", 12.5f, 0xCCFFFFFF.toInt()),
                 lp().margins(context, t = 2))
@@ -288,14 +286,7 @@ class HomeActivity : AppCompatActivity() {
                 addView(stat("Paid", bal.reimbursed, 0xFF7BD8A6.toInt()), lp(0, WRAP, 1f))
             }, lp().margins(context, t = 16))
             setOnClickListener { startActivity(Intent(this@HomeActivity, AdvancesActivity::class.java)) }
-        }, lp().margins(this, t = 4, b = 6))
-        body.addView(horizontal {
-            gravity = Gravity.CENTER_VERTICAL
-            addView(text(tr("पूरी list के लिए ऊपर tap करें", "Tap above for all your advances"), 12f, Ui.MUTED), lp(0, WRAP, 1f))
-            addView(pillButton(tr("Advance माँगें", "Request advance"), Ui.BRAND_LIGHT, Ui.BRAND_DARK, heightDp = 40, iconRes = R.drawable.ic_plus) {
-                startActivity(Intent(this@HomeActivity, AdvanceRequestsActivity::class.java).putExtra(AdvanceRequestsActivity.EXTRA_MODE, AdvanceRequestsActivity.MODE_NEW))
-            })
-        }, lp().margins(this, b = 8))
+        }, lp().margins(this, t = 4, b = 8))
         val queuedReqs = Actions.all(this).filter { it.optString("kind") == "requestAdvance" && it.optString("error").isBlank() }.map {
             val q = it.getJSONObject("body").getJSONObject("request")
             AdvRequest.from(JSONObject().put("id", q.optString("id")).put("amount", q.optDouble("amount")).put("purpose", q.optString("purpose")).put("status", AdvRequest.QUEUED))
