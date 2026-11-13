@@ -34,7 +34,7 @@ class ClaimFormActivity : AppCompatActivity() {
     private var category = ""
     private var paidBy = "Advance"
     private var paymentMode = "Cash"
-    private var photo = ""
+    private val photos = mutableListOf<String>()
 
     /** Fuel / Petrol: start and end odometer photo + reading. */
     private inner class Odo(val key: String, val title: String) {
@@ -94,7 +94,7 @@ class ClaimFormActivity : AppCompatActivity() {
     private val camera = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val f = r.data?.getStringArrayListExtra(CameraActivity.EXTRA_FILES).orEmpty().lastOrNull()
         val odo = odoTarget
-        if (f != null) { if (odo != null) setOdoPhoto(odo, f) else { photo = f; showPhoto() } }
+        if (f != null) { if (odo != null) setOdoPhoto(odo, f) else { photos.add(f); showPhoto() } }
     }
 
     private val gallery = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -102,7 +102,7 @@ class ClaimFormActivity : AppCompatActivity() {
         if (uri != null) {
             val f = Photos.importUri(this, uri, claimId + (odo?.let { "_odo_" + it.key } ?: "_g") + System.currentTimeMillis() % 100000)
             if (f == null) toast(tr("यह photo नहीं खुल सकी", "Could not open this photo"))
-            else { photo = f.absolutePath; showPhoto() }
+            else { photos.add(f.absolutePath); showPhoto() }
         }
     }
 
@@ -218,8 +218,8 @@ class ClaimFormActivity : AppCompatActivity() {
             photoBox = vertical { }
             addView(photoBox, lp())
             addView(horizontal {
-                addView(pillButton("GPS Camera", Ui.BRAND, iconRes = R.drawable.ic_camera, heightDp = 46) { openCamera() }, lp(0, WRAP, 1f).margins(context, r = 8))
-                addView(pillButton("Gallery", Ui.BRAND_LIGHT, Ui.TEXT, iconRes = R.drawable.ic_grid, heightDp = 46) {
+                addView(pillButton(tr("➕ GPS Camera", "➕ GPS Camera"), Ui.BRAND, iconRes = R.drawable.ic_camera, heightDp = 46) { openCamera() }, lp(0, WRAP, 1f).margins(context, r = 8))
+                addView(pillButton(tr("➕ Gallery", "➕ Gallery"), Ui.BRAND_LIGHT, Ui.TEXT, iconRes = R.drawable.ic_grid, heightDp = 46) {
                     gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 }, lp(0, WRAP, 1f))
             }, lp().margins(context, t = 8))
@@ -352,22 +352,27 @@ class ClaimFormActivity : AppCompatActivity() {
 
     private fun showPhoto() {
         photoBox.removeAllViews()
-        if (photo.isBlank() || !File(photo).exists()) {
+        photos.removeAll { !File(it).exists() }
+        if (photos.isEmpty()) {
             photoBox.addView(note(tr("अभी कोई photo नहीं लगी।", "No photo added yet."), Ui.SUN_LIGHT, Ui.SUN_TEXT))
             return
         }
         val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
-        photoBox.addView(ImageView(this).apply {
-            setImageBitmap(BitmapFactory.decodeFile(photo, opts))
-            adjustViewBounds = true
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            background = rounded(Ui.BG, dpf(12f))
-        }, lp(MATCH, dp(220)))
-        photoBox.addView(text(tr("Photo हटाएँ", "Remove photo"), 13f, Ui.DANGER, bold = true) {
-            gravity = Gravity.END
-            setPadding(0, dp(8), 0, 0)
-            setOnClickListener { photo = ""; showPhoto() }
-        }, lp())
+        photos.toList().forEachIndexed { i, p ->
+            if (photos.size > 1) photoBox.addView(text(tr("Bill ${i + 1}", "Bill ${i + 1}"), 12.5f, Ui.MUTED, bold = true), lp().margins(this, t = if (i == 0) 0 else 10, b = 4))
+            photoBox.addView(ImageView(this).apply {
+                setImageBitmap(BitmapFactory.decodeFile(p, opts))
+                adjustViewBounds = true
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                background = rounded(Ui.BG, dpf(12f))
+            }, lp(MATCH, dp(220)))
+            photoBox.addView(text(tr("यह photo हटाएँ", "Remove this photo"), 13f, Ui.DANGER, bold = true) {
+                gravity = Gravity.END
+                setPadding(0, dp(6), 0, 0)
+                setOnClickListener { photos.remove(p); showPhoto() }
+            }, lp())
+        }
+        photoBox.addView(text(tr("➕ और photo जोड़ें — नीचे GPS Camera या Gallery दबाएँ", "➕ Add more — tap GPS Camera or Gallery below"), 12.5f, Ui.BRAND_DARK, bold = true), lp().margins(this, t = 10))
     }
 
     private fun submit() {
@@ -581,7 +586,7 @@ class ClaimFormActivity : AppCompatActivity() {
             .put("odoStartTime", odoStart.time ?: 0L).put("odoEndTime", odoEnd.time ?: 0L)
             .put("odoStartStamp", odoStart.stamp).put("odoEndStamp", odoEnd.stamp)
         // saved on the phone at once; it goes to the office in the background (no waiting for the upload)
-        Outbox.add(this, claim, photo, if (fuel) odoStart.photo else "", if (fuel) odoEnd.photo else "")
+        Outbox.add(this, claim, photos.toList(), if (fuel) odoStart.photo else "", if (fuel) odoEnd.photo else "")
         Journeys.remove(this, claimId)
         Outbox.flush(this)
         toast(tr("Claim save हो गया — background में भेजा जा रहा है।", "Claim saved. It is being sent in the background."))

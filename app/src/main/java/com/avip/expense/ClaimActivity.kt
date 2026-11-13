@@ -119,15 +119,20 @@ class ClaimActivity : AppCompatActivity() {
             if (c.odoStart > 0 && c.odoEnd > 0) addView(text(tr("कुल दूरी: ", "Distance: ") + Fmt.km(c.odoEnd - c.odoStart) + " km", 14.5f, Ui.BRAND_DARK, bold = true), lp().margins(context, t = 10))
         })
 
-        body.addView(section("Bill photo") {
-            photoView = vertical { }
-            addView(photoView, lp())
-            when {
-                c.localPhoto.isNotBlank() && File(c.localPhoto).exists() -> showPhotoAsync(photoView!!, "local:${c.localPhoto}") { Img.decodeFile(c.localPhoto, screenW()) }
-                c.hasPhoto && PhotoCache.has(this@ClaimActivity, c.id, "bill") -> showPhotoAsync(photoView!!, "${c.id}:bill") { Img.decodeFile(PhotoCache.file(this@ClaimActivity, c.id, "bill").absolutePath, screenW()) }
-                c.hasPhoto -> photoView?.addView(pillButton(tr("Bill photo देखें", "View bill photo"), Ui.BRAND_LIGHT, Ui.TEXT, heightDp = 46, iconRes = R.drawable.ic_camera) { loadPhoto("bill", photoView!!) }, lp())
-                else -> photoView?.addView(note(tr("इस claim के साथ bill photo नहीं है।", "This claim has no bill photo."), Ui.SUN_LIGHT, Ui.SUN_TEXT))
-            }
+        body.addView(section(tr("Bill photos", "Bill photos")) {
+            if (c.localPhoto.isNotBlank() && File(c.localPhoto).exists()) {
+                val v = vertical { }; addView(v, lp())
+                showPhotoAsync(v, "local:${c.localPhoto}") { Img.decodeFile(c.localPhoto, screenW()) }
+            } else if (c.hasPhoto) {
+                val count = if (c.billCount > 0) c.billCount else 1
+                for (i in 0 until count) {
+                    if (count > 1) addView(text(tr("Bill ${i + 1}", "Bill ${i + 1}"), 13f, Ui.MUTED, bold = true), lp().margins(context, t = if (i == 0) 0 else 10, b = 4))
+                    val v = vertical { }; addView(v, lp())
+                    val ck = "bill$i"
+                    if (PhotoCache.has(this@ClaimActivity, c.id, ck)) showPhotoAsync(v, "${c.id}:$ck") { Img.decodeFile(PhotoCache.file(this@ClaimActivity, c.id, ck).absolutePath, screenW()) }
+                    else { val idx = i; v.addView(pillButton(tr("Bill photo देखें", "View bill photo") + (if (count > 1) " ${i + 1}" else ""), Ui.BRAND_LIGHT, Ui.TEXT, heightDp = 46, iconRes = R.drawable.ic_camera) { loadPhoto("bill", v, idx, ck) }, lp()) }
+                }
+            } else addView(note(tr("इस claim के साथ bill photo नहीं है।", "This claim has no bill photo."), Ui.SUN_LIGHT, Ui.SUN_TEXT))
         })
 
         // ---- next step for this person
@@ -191,15 +196,15 @@ class ClaimActivity : AppCompatActivity() {
 
     private fun screenW() = resources.displayMetrics.widthPixels
 
-    private fun loadPhoto(which: String, box: LinearLayout) {
-        busy(tr("Photo आ रही है…", "Loading photo…"), { Api.call(this, "billPhoto", JSONObject().put("claimId", claim.id).put("which", which), timeoutMs = 90000) }) { r ->
+    private fun loadPhoto(which: String, box: LinearLayout, index: Int = 0, cacheWhich: String = which) {
+        busy(tr("Photo आ रही है…", "Loading photo…"), { Api.call(this, "billPhoto", JSONObject().put("claimId", claim.id).put("which", which).put("index", index), timeoutMs = 90000) }) { r ->
             val bytes = Base64.decode(r.optString("data"), Base64.DEFAULT)
             lifecycleScope.launch {
                 val bmp = withContext(Dispatchers.IO) {
-                    PhotoCache.put(this@ClaimActivity, claim.id, which, bytes)
+                    PhotoCache.put(this@ClaimActivity, claim.id, cacheWhich, bytes)
                     Img.decodeBytes(bytes, screenW())
                 }
-                Img.put("${claim.id}:$which", bmp)
+                Img.put("${claim.id}:$cacheWhich", bmp)
                 if (!isFinishing) showImage(bmp, box)
             }
         }

@@ -300,6 +300,7 @@ function claimOut(c, withMember) {
     site: clean(c['Customer / Site']), district: clean(c['District / Location']),
     km: num(c['KM Travelled']), amount: money(c['Amount (₹)']), paymentMode: clean(c['Payment Mode']),
     paidBy: clean(c['Paid By']), hasPhoto: clean(c['Bill Photo Link']) !== '',
+    billCount: String(c['Bill Photo Link'] || '').split('\n').filter(String).length,
     status: clean(c['Status']) || ST.PENDING, approvedBy: clean(c['Approved By']), approvedOn: iso(c['Approved On']),
     remarks: clean(c['Remarks']), reimbursedOn: isoDay(c['Reimbursed On']), reimbursedVia: clean(c['Reimbursed Via']),
     paymentRef: clean(c['Payment Reference']), submittedOn: iso(c['Submitted On']),
@@ -456,13 +457,13 @@ function submitClaim(d) {
     const existing = rows(LOG).filter(function (r) { return clean(r['Claim ID']) === id; })[0];
     if (existing) {
       if (!owns(u, existing)) throw new Error('Claim number already used.');
-      if (d.photo && !clean(existing['Bill Photo Link'])) setFields(LOG, existing._row, { 'Bill Photo Link': saveBill(id, u, d.photo) });
+      if ((d.photo || (Array.isArray(d.photos) && d.photos.length)) && !clean(existing['Bill Photo Link'])) setFields(LOG, existing._row, { 'Bill Photo Link': billLinks_(id, u, d) });
       if (d.odoStartPhoto && !clean(existing['Start Odometer Photo'])) setFields(LOG, existing._row, { 'Start Odometer Photo': saveBill(id, u, d.odoStartPhoto, 'start odometer') });
       if (d.odoEndPhoto && !clean(existing['End Odometer Photo'])) setFields(LOG, existing._row, { 'End Odometer Photo': saveBill(id, u, d.odoEndPhoto, 'end odometer') });
       return { claim: claimOut(rows(LOG).filter(function (r) { return clean(r['Claim ID']) === id; })[0], false), duplicate: true };
     }
     if (fuel && (!d.odoStartPhoto || !d.odoEndPhoto)) throw new Error('Fuel claim: add photos of the start and end odometer.');
-    const link = d.photo ? saveBill(id, u, d.photo) : '';
+    const link = billLinks_(id, u, d);
     const startLink = fuel ? saveBill(id, u, d.odoStartPhoto, 'start odometer') : '';
     const endLink = fuel ? saveBill(id, u, d.odoEndPhoto, 'end odometer') : '';
 
@@ -557,6 +558,14 @@ function photoTime(ms) {
   return t;
 }
 
+/** Saves one or many bill photos and returns their Drive links joined by newlines. */
+function billLinks_(id, u, d) {
+  if (Array.isArray(d.photos) && d.photos.length) {
+    return d.photos.map(function (p, i) { return saveBill(id, u, p, d.photos.length > 1 ? 'bill ' + (i + 1) : 'bill'); }).filter(String).join('\n');
+  }
+  return d.photo ? saveBill(id, u, d.photo) : '';
+}
+
 function saveBill(claimId, u, photo, what) {
   const data = clean(photo.data);
   if (!data) return '';
@@ -588,7 +597,13 @@ function billPhoto(d) {
   const c = findClaim(d.claimId);
   if (!owns(u, c) && !seesAll(u)) throw new Error('This is not your claim.');
   const col = d.which === 'odoStart' ? 'Start Odometer Photo' : d.which === 'odoEnd' ? 'End Odometer Photo' : 'Bill Photo Link';
-  const id = fileIdFromUrl(c[col]);
+  let cell = c[col];
+  if (col === 'Bill Photo Link') {
+    const links = String(cell || '').split('\n').filter(String);
+    const idx = Math.max(0, Math.floor(num(d.index)) || 0);
+    cell = links[idx] || links[0] || '';
+  }
+  const id = fileIdFromUrl(cell);
   if (!id) throw new Error('No such photo for this claim.');
   const blob = DriveApp.getFileById(id).getBlob();
   return { mime: blob.getContentType(), data: Utilities.base64Encode(blob.getBytes()) };
@@ -603,8 +618,10 @@ function deleteClaim(d) {
     if (!owns(u, c)) throw new Error('This is not your claim.');
     if ((clean(c['Status']) || ST.PENDING) !== ST.PENDING) throw new Error('Only a pending claim can be deleted.');
     ['Bill Photo Link', 'Start Odometer Photo', 'End Odometer Photo'].forEach(function (k) {
-      const fid = fileIdFromUrl(c[k]);
-      if (fid) { try { DriveApp.getFileById(fid).setTrashed(true); } catch (_) {} }
+      String(c[k] || '').split('\n').filter(String).forEach(function (url) {
+        const fid = fileIdFromUrl(url);
+        if (fid) { try { DriveApp.getFileById(fid).setTrashed(true); } catch (_) {} }
+      });
     });
     table(LOG).sh.deleteRow(c._row);
     return {};

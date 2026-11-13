@@ -55,6 +55,7 @@ data class Claim(
     val adminOnly: Boolean = false, val adminReason: String = "", val odoDatesDiffer: Boolean = false,
     val odoStartTime: String = "", val odoEndTime: String = "",
     val bike: String = "", val bikeNo: String = "",
+    val billCount: Int = 0,
 ) {
     val isFuel get() = Settings.isFuel(category)
 
@@ -73,6 +74,7 @@ data class Claim(
             o.optBoolean("adminOnly"), o.optString("adminReason"), o.optBoolean("odoDatesDiffer"),
             o.optString("odoStartTime"), o.optString("odoEndTime"),
             o.optString("bike"), o.optString("bikeNo"),
+            o.optInt("billCount", if (o.optBoolean("hasPhoto")) 1 else 0),
         )
 
         fun list(a: JSONArray?): List<Claim> = (0 until (a?.length() ?: 0)).map { from(a!!.getJSONObject(it)) }
@@ -343,8 +345,9 @@ object Outbox {
             .sortedBy { it.optString("savedAt") }
     }
 
-    fun add(c: Context, claim: JSONObject, photoPath: String, odoStart: String = "", odoEnd: String = "") {
-        val o = JSONObject().put("claim", claim).put("photo", photoPath).put("savedAt", System.currentTimeMillis().toString())
+    fun add(c: Context, claim: JSONObject, photoPaths: List<String>, odoStart: String = "", odoEnd: String = "") {
+        val o = JSONObject().put("claim", claim).put("photos", JSONArray(photoPaths))
+            .put("photo", photoPaths.firstOrNull() ?: "").put("savedAt", System.currentTimeMillis().toString())
             .put("odoStartPhoto", odoStart).put("odoEndPhoto", odoEnd)
             .put("owner", Session.user(c)?.id ?: "")
         c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(claim.getString("id"), o.toString()).commit()
@@ -358,8 +361,11 @@ object Outbox {
     /** Claims not yet sent, shaped like server claims, for the lists. */
     fun asClaims(c: Context): List<Claim> = all(c).map { o ->
         val cl = o.getJSONObject("claim")
-        Claim.from(JSONObject(cl.toString()).put("status", Status.QUEUED).put("hasPhoto", o.optString("photo").isNotBlank())
-            .put("localPhoto", o.optString("photo"))
+        val photos = o.optJSONArray("photos")
+        val first = if (photos != null && photos.length() > 0) photos.optString(0) else o.optString("photo")
+        Claim.from(JSONObject(cl.toString()).put("status", Status.QUEUED).put("hasPhoto", first.isNotBlank())
+            .put("billCount", photos?.length() ?: if (first.isNotBlank()) 1 else 0)
+            .put("localPhoto", first)
             .put("localOdoStart", o.optString("odoStartPhoto")).put("localOdoEnd", o.optString("odoEndPhoto"))
             .put("hasOdoStart", o.optString("odoStartPhoto").isNotBlank()).put("hasOdoEnd", o.optString("odoEndPhoto").isNotBlank()))
     }
@@ -369,10 +375,13 @@ object Outbox {
         val o = all(c).firstOrNull { it.getJSONObject("claim").optString("id") == id }
             ?: throw ApiException("Claim not found on this phone.")
         val body = JSONObject().put("claim", o.getJSONObject("claim"))
-        val photo = o.optString("photo")
-        if (photo.isNotBlank()) {
-            val data = Photos.base64(photo)
-            if (data != null) body.put("photo", JSONObject().put("mime", "image/jpeg").put("data", data))
+        val photosArr = o.optJSONArray("photos")
+        val paths = if (photosArr != null) (0 until photosArr.length()).map { photosArr.optString(it) }.filter { it.isNotBlank() }
+            else o.optString("photo").takeIf { it.isNotBlank() }?.let { listOf(it) } ?: emptyList()
+        if (paths.isNotEmpty()) {
+            val arr = JSONArray()
+            for (p in paths) { Photos.base64(p)?.let { arr.put(JSONObject().put("mime", "image/jpeg").put("data", it)) } }
+            if (arr.length() > 0) body.put("photos", arr)
         }
         for ((key, field) in listOf("odoStartPhoto" to "odoStartPhoto", "odoEndPhoto" to "odoEndPhoto")) {
             val p = o.optString(key)
