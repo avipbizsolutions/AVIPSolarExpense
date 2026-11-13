@@ -50,7 +50,7 @@ class HomeActivity : AppCompatActivity() {
         super.onResume()
         if (user == null) return
         render()
-        refresh()
+        refresh(soft = true)
     }
 
     private fun build() {
@@ -99,8 +99,10 @@ class HomeActivity : AppCompatActivity() {
     private var loadingNow = false
 
     /** Sends any claims waiting on the phone first, then loads everything in one request. */
-    private fun refresh() {
+    private fun refresh(soft: Boolean = false) {
         if (loadingNow) { swipe?.isRefreshing = false; return }
+        // returning to the home screen within a few seconds: show cached data, don't re-fetch
+        if (soft && Store.fetchedRecently("home")) { swipe?.isRefreshing = false; return }
         loadingNow = true
         loading.visibility = View.VISIBLE
         lifecycleScope.launch {
@@ -119,6 +121,7 @@ class HomeActivity : AppCompatActivity() {
                     }
                     Store.save(this@HomeActivity, "boot", home)
                     Store.save(this@HomeActivity, "mine", home)
+                    Store.markFetched("home")
                     home.optJSONObject("user")?.let { Session.updateUser(this@HomeActivity, User.from(it)) }
                 }
             }

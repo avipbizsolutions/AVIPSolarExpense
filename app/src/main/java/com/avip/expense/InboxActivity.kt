@@ -59,10 +59,10 @@ class InboxActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        loadAll()
+        loadAll(soft = true)
     }
 
-    private fun loadAll() { loadClaims(); loadAdvances() }
+    private fun loadAll(soft: Boolean = false) { loadClaims(soft); loadAdvances(soft) }
 
     // ------------------------------------------------------------------ claims (tick several)
 
@@ -85,11 +85,12 @@ class InboxActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadClaims() {
+    private fun loadClaims(soft: Boolean = false) {
         if (loadingClaims) { swipe?.isRefreshing = false; return }
-        loadingClaims = true
         if (claims.isEmpty()) claims = claimsFromCache()
         if (blocked.isEmpty()) blocked = blockedFromCache()
+        if (soft && Store.fetchedRecently("inbox_claims")) { render(); return }
+        loadingClaims = true
         render()
         lifecycleScope.launch {
             val r = withContext(Dispatchers.IO) { runCatching { Api.call(this@InboxActivity, "teamClaims", JSONObject().put("status", claimStatus)) } }
@@ -106,6 +107,7 @@ class InboxActivity : AppCompatActivity() {
                     }
                 }
                 Store.save(this@InboxActivity, "team", JSONObject().put("claims", merged))
+                Store.markFetched("inbox_claims")
                 val me = Session.user(this@InboxActivity)
                 val limit = Settings.approvalLimit(this@InboxActivity)
                 val fresh = Claim.list(o.optJSONArray("claims"))
@@ -125,16 +127,17 @@ class InboxActivity : AppCompatActivity() {
 
     // ------------------------------------------------------------------ advances (tap to review)
 
-    private fun loadAdvances() {
+    private fun loadAdvances(soft: Boolean = false) {
         if (loadingAdv) { swipe?.isRefreshing = false; return }
-        loadingAdv = true
         if (advData == null) advData = Store.load(this, "adv_req_team")
+        if (soft && Store.fetchedRecently("inbox_adv") && advData != null) { render(); return }
+        loadingAdv = true
         render()
         lifecycleScope.launch {
             val r = withContext(Dispatchers.IO) { runCatching { Api.call(this@InboxActivity, "advanceRequests", JSONObject().put("team", true)) } }
             loadingAdv = false
             if (isFinishing) return@launch
-            r.onSuccess { advData = it; Store.save(this@InboxActivity, "adv_req_team", it) }
+            r.onSuccess { advData = it; Store.save(this@InboxActivity, "adv_req_team", it); Store.markFetched("inbox_adv") }
             render()
             r.onFailure { showError(it) }
         }

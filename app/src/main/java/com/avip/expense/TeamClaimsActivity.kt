@@ -55,7 +55,7 @@ class TeamClaimsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        load()
+        load(soft = true)
     }
 
     /** Claims from the last load, filtered for this screen, so the list shows at once. */
@@ -71,10 +71,11 @@ class TeamClaimsActivity : AppCompatActivity() {
         }
     }
 
-    private fun load() {
+    private fun load(soft: Boolean = false) {
         if (loading) { swipe?.isRefreshing = false; return }
-        loading = true
         if (claims.isEmpty()) claims = fromCache()
+        if (soft && Store.fetchedRecently("teamclaims")) { render(); return }
+        loading = true
         render()
         lifecycleScope.launch {
             val r = withContext(Dispatchers.IO) {
@@ -95,6 +96,7 @@ class TeamClaimsActivity : AppCompatActivity() {
                     }
                 }
                 Store.save(this@TeamClaimsActivity, "team", JSONObject().put("claims", merged))
+                Store.markFetched("teamclaims")
                 val me = Session.user(this@TeamClaimsActivity)
                 claims = Claim.list(o.optJSONArray("claims")).filter {
                     when (mode) {

@@ -31,6 +31,10 @@ class TeamActivity : AppCompatActivity() {
     private var swipe: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null
     private var tab = TAB_ADV
     private var advData: JSONObject? = null
+    // parsed once per load (off the main thread) so filter/tab taps don't re-read prefs or re-parse JSON
+    private var claimsCache = listOf<Claim>()
+    private var advCache = listOf<Advance>()
+    private var peopleCache = listOf<Balance>()
     private var claimStatus = ""     // claims status filter ("" = all)
     private var person = ""          // shared person drill-down (advances + claims)
     private var rangeFrom = ""       // shared date range (inclusive)
@@ -82,43 +86,64 @@ class TeamActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        loadAll()
+        loadAll(soft = true)
     }
 
-    private fun loadAll() { loadAdvances(); loadClaims() }
+    private fun loadAll(soft: Boolean = false) { loadAdvances(soft); loadClaims(soft) }
 
     // ------------------------------------------------------------------ loaders
 
-    private fun loadAdvances() {
+    private fun loadAdvances(soft: Boolean = false) {
         if (loadingAdv) { swipe?.isRefreshing = false; return }
+        if (advCache.isEmpty() && peopleCache.isEmpty()) {
+            val o = Store.load(this, "adv_team"); advData = o
+            if (o != null) { advCache = Advance.list(o.optJSONArray("advances")); peopleCache = balances(o) }
+        }
+        if (soft && Store.fetchedRecently("adv_team") && advData != null) { render(); return }
         loadingAdv = true
-        if (advData == null) advData = Store.load(this, "adv_team")
         render()
         lifecycleScope.launch {
-            val r = withContext(Dispatchers.IO) { runCatching { Api.call(this@TeamActivity, "advances", JSONObject().put("team", true)) } }
+            val r = withContext(Dispatchers.IO) {
+                runCatching {
+                    val o = Api.call(this@TeamActivity, "advances", JSONObject().put("team", true))
+                    Store.save(this@TeamActivity, "adv_team", o); Store.markFetched("adv_team")
+                    Triple(o, Advance.list(o.optJSONArray("advances")), balances(o))
+                }
+            }
             loadingAdv = false
             swipe?.isRefreshing = false
             if (isFinishing) return@launch
-            r.onSuccess { advData = it; Store.save(this@TeamActivity, "adv_team", it) }
+            r.onSuccess { (o, advs, ppl) -> advData = o; advCache = advs; peopleCache = ppl }
             render()
             r.onFailure { showError(it) }
         }
     }
 
-    private fun loadClaims() {
+    private fun loadClaims(soft: Boolean = false) {
         if (loadingClaims) { swipe?.isRefreshing = false; return }
+        if (claimsCache.isEmpty()) claimsCache = Claim.list(Store.load(this, "team")?.optJSONArray("claims"))
+        if (soft && Store.fetchedRecently("team") && claimsCache.isNotEmpty()) { render(); return }
         loadingClaims = true
         render()
         lifecycleScope.launch {
-            val r = withContext(Dispatchers.IO) { runCatching { Api.call(this@TeamActivity, "teamClaims", JSONObject().put("status", "")) } }
+            val r = withContext(Dispatchers.IO) {
+                runCatching {
+                    val o = Api.call(this@TeamActivity, "teamClaims", JSONObject().put("status", ""))
+                    Store.save(this@TeamActivity, "team", JSONObject().put("claims", o.optJSONArray("claims"))); Store.markFetched("team")
+                    Claim.list(o.optJSONArray("claims"))
+                }
+            }
             loadingClaims = false
             swipe?.isRefreshing = false
             if (isFinishing) return@launch
-            r.onSuccess { Store.save(this@TeamActivity, "team", JSONObject().put("claims", it.optJSONArray("claims"))) }
+            r.onSuccess { claimsCache = it }
             render()
             r.onFailure { showError(it) }
         }
     }
+
+    private fun balances(o: JSONObject): List<Balance> =
+        (0 until (o.optJSONArray("people")?.length() ?: 0)).map { Balance.from(o.optJSONArray("people")!!.getJSONObject(it)) }
 
     // ------------------------------------------------------------------ render
 
@@ -152,11 +177,10 @@ class TeamActivity : AppCompatActivity() {
     }
 
     private fun renderAdvances() {
-        val o = advData ?: return
         val (lo, hi) = rangeBounds()
-        val people = (0 until (o.optJSONArray("people")?.length() ?: 0)).map { Balance.from(o.optJSONArray("people")!!.getJSONObject(it)) }
+        val people = peopleCache
         val balByName = people.associateBy({ it.name.lowercase() }, { it.advanceBalance })
-        val inRange = Advance.list(o.optJSONArray("advances")).filter { val t = Fmt.parseIso(it.date); t == null || t in lo..hi }
+        val inRange = advCache.filter { val t = Fmt.parseIso(it.date); t == null || t in lo..hi }
 
         // ---- team total
         body.addView(card(16) {
@@ -207,7 +231,7 @@ class TeamActivity : AppCompatActivity() {
     }
 
     private fun renderClaims() {
-        val all = Claim.list(Store.load(this, "team")?.optJSONArray("claims"))
+        val all = claimsCache
         val (lo, hi) = rangeBounds()
         // ---- status filter
         body.addView(chips(listOf("All", Status.PENDING, Status.APPROVED, Status.REIMBURSED, Status.REJECTED).map { if (it == "All") it else Status.label(it) },

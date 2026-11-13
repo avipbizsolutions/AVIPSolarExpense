@@ -132,6 +132,13 @@ object Store {
 
     fun clear(c: Context) = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
 
+    // Remember when a key was last fetched from the server, so returning to a screen
+    // can show cached data instantly instead of re-fetching and rebuilding every time.
+    private val lastFetch = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    fun markFetched(key: String) { lastFetch[key] = System.currentTimeMillis() }
+    fun fetchedRecently(key: String, windowMs: Long = 15000): Boolean =
+        System.currentTimeMillis() - (lastFetch[key] ?: 0L) < windowMs
+
     fun strings(o: JSONObject?, key: String, fallback: List<String>): List<String> {
         val a = o?.optJSONArray(key) ?: return fallback
         val l = (0 until a.length()).map { a.optString(it) }.filter { it.isNotBlank() }
