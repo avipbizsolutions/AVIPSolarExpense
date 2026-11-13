@@ -204,25 +204,21 @@ class HomeActivity : AppCompatActivity() {
         val counts = boot?.optJSONObject("counts") ?: JSONObject()
         if (u.canApprove || u.isAccounts) {
             val row = horizontal { }
-            if (u.canApprove) row.addView(tile(tr("Claims Approve करें", "Approve claims"), counts.optInt("toApprove"), R.drawable.ic_check, Ui.PURPLE) {
-                startActivity(Intent(this, TeamClaimsActivity::class.java).putExtra(TeamClaimsActivity.EXTRA_MODE, TeamClaimsActivity.MODE_APPROVE))
+            // Approvals: claims + advances, one screen (approvers)
+            if (u.canApprove) row.addView(tile(tr("Approve करें", "Approvals"), counts.optInt("toApprove") + counts.optInt("advToApprove"), R.drawable.ic_check, Ui.PURPLE) {
+                startActivity(Intent(this, InboxActivity::class.java).putExtra(InboxActivity.EXTRA_MODE, InboxActivity.MODE_APPROVE))
             }, lp(0, WRAP, 1f).margins(this, r = 8))
-            if (u.isAccounts) row.addView(tile(tr("Payment करें", "Pay claims"), counts.optInt("toPay"), R.drawable.ic_rupee, Ui.GREEN) {
-                startActivity(Intent(this, TeamClaimsActivity::class.java).putExtra(TeamClaimsActivity.EXTRA_MODE, TeamClaimsActivity.MODE_PAY))
+            // Payments: pay claims + pay advances, one screen (accounts)
+            if (u.isAccounts) row.addView(tile(tr("Payment करें", "Payments"), counts.optInt("toPay") + counts.optInt("advToPay"), R.drawable.ic_rupee, Ui.GREEN) {
+                startActivity(Intent(this, InboxActivity::class.java).putExtra(InboxActivity.EXTRA_MODE, InboxActivity.MODE_PAY))
             }, lp(0, WRAP, 1f).margins(this, r = 8))
             if (u.isAccounts) row.addView(tile(tr("Team के Advance", "Team advances"), -1, R.drawable.ic_person, Ui.TEAL) {
                 startActivity(Intent(this, AdvancesActivity::class.java).putExtra(AdvancesActivity.EXTRA_TEAM, true))
             }, lp(0, WRAP, 1f))
+            // keep a lone tile at half width rather than stretching across the row
+            val tileCount = (if (u.canApprove) 1 else 0) + (if (u.isAccounts) 2 else 0)
+            if (tileCount == 1) row.addView(View(this), lp(0, WRAP, 1f))
             body.addView(row, lp().margins(this, b = 8))
-            val advRow = horizontal { }
-            if (u.canApprove) advRow.addView(tile(tr("Advance Approve करें", "Approve advances"), counts.optInt("advToApprove"), R.drawable.ic_check, Ui.BRAND) {
-                startActivity(Intent(this, AdvanceRequestsActivity::class.java).putExtra(AdvanceRequestsActivity.EXTRA_MODE, AdvanceRequestsActivity.MODE_APPROVE))
-            }, lp(0, WRAP, 1f).margins(this, r = 8))
-            if (u.isAccounts) advRow.addView(tile(tr("Advance Payment करें", "Pay advances"), counts.optInt("advToPay"), R.drawable.ic_rupee, Ui.GREEN) {
-                startActivity(Intent(this, AdvanceRequestsActivity::class.java).putExtra(AdvanceRequestsActivity.EXTRA_MODE, AdvanceRequestsActivity.MODE_PAY))
-            }, lp(0, WRAP, 1f))
-            if (!u.isAccounts) advRow.addView(View(this), lp(0, WRAP, 1f))
-            body.addView(advRow, lp().margins(this, b = 8))
             body.addView(text(tr("Team के सारे Claims", "All team claims"), 14f, Ui.BLUE, bold = true) {
                 setPadding(dp(4), dp(8), dp(4), dp(8))
                 setOnClickListener {
