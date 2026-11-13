@@ -59,6 +59,7 @@ class ClaimFormActivity : AppCompatActivity() {
     private lateinit var bikeNo: EditText
     private lateinit var petrol: EditText
     private lateinit var fuelHint: android.widget.TextView
+    private lateinit var billSection: View
     private lateinit var fuelBox: View
     private lateinit var fuelSum: android.widget.TextView
     private lateinit var amountBox: View
@@ -139,6 +140,7 @@ class ClaimFormActivity : AppCompatActivity() {
                         fuelBox.visibility = if (fuel) View.VISIBLE else View.GONE
                         amountBox.visibility = if (fuel) View.GONE else View.VISIBLE
                         if (fuel) updateFuel()
+                        updateBill()
                         checkAdvance(bal)
                     }.show()
             }
@@ -208,7 +210,7 @@ class ClaimFormActivity : AppCompatActivity() {
             addView(chips(modes, "") { paymentMode = it }, lp())
         })
 
-        body.addView(section("Bill", tr("Bill की साफ photo लगाएँ।", "Add a clear photo of the bill.")) {
+        billSection = section("Bill", tr("Bill की साफ photo लगाएँ।", "Add a clear photo of the bill.")) {
             addView(marquee(tr("⚠ ₹500 से ऊपर के हर खर्च के लिए bill की photo ज़रूरी है — बिना bill के claim reject हो सकता है।   ⚠ Fuel / Petrol (अपनी bike) में odometer की GPS photos ही काफी हैं।   ⚠ Company bike: petrol bill ज़रूरी है।",
                 "⚠ A bill photo is required for every expense above ₹500. Claims without a bill may be rejected.   ⚠ Fuel / petrol (own bike): the odometer GPS photos are enough.   ⚠ Company bike: the petrol bill is required.")), lp().margins(context, b = 10))
             photoBox = vertical { }
@@ -220,13 +222,15 @@ class ClaimFormActivity : AppCompatActivity() {
                 }, lp(0, WRAP, 1f))
             }, lp().margins(context, t = 8))
             billNo = field(this, tr("Bill / Voucher No. (अगर हो)", "Bill / voucher no. (if any)"), "", "", InputType.TYPE_CLASS_TEXT, R.drawable.ic_pdf, 40) {}
-        })
+        }
+        body.addView(billSection)
 
         body.addView(section(tr("Site (अगर site का खर्च है)", "Site (for site expenses)")) {
             site = field(this, tr("Customer / Site का नाम", "Customer / site name"), "", tr("जैसे: Ramesh Kumar", "e.g. Ramesh Kumar"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS, R.drawable.ic_person, 100) {}
             district = field(this, tr("District / जगह", "District / location"), "", tr("जैसे: Danapur, Patna", "e.g. Danapur, Patna"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS, R.drawable.ic_location, 80) {}
         })
         showPhoto()
+        updateBill()
 
         // bike journey: Fuel / Petrol straight away, and a draft to continue
         if (jx != null) {
@@ -249,6 +253,13 @@ class ClaimFormActivity : AppCompatActivity() {
         updateFuel()
     }
 
+    /** Own-bike fuel is paid per km with no bill, so the Bill section is hidden for it. */
+    private fun updateBill() {
+        if (!::billSection.isInitialized) return
+        val hide = Settings.isFuel(category) && bike == "Own"
+        billSection.visibility = if (hide) View.GONE else View.VISIBLE
+    }
+
     private fun showBike() {
         bikeChips.removeAllViews()
         bikeChips.background = rounded(Ui.BRAND_LIGHT, dpf(14f))
@@ -266,6 +277,7 @@ class ClaimFormActivity : AppCompatActivity() {
         companyBox.visibility = if (bike == "Company") View.VISIBLE else View.GONE
         fuelHint.text = if (bike == "Company") tr("Bill जितना पैसा मिलेगा · km और ₹/km record के लिए", "You get the bill amount · km and ₹/km shown for the record")
             else tr("₹${Fmt.km(fuelRate)} प्रति km · bill की ज़रूरत नहीं", "₹${Fmt.km(fuelRate)} per km · no bill needed")
+        updateBill()
     }
 
     /** Saves the journey so far (start photo and reading) on the phone, as a draft. */
