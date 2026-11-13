@@ -668,27 +668,10 @@ function advances(d) {
 }
 
 function addAdvance(d) {
-  const u = me(d);
-  if (!isAccounts(u)) throw new Error('Only accounts can record advances.');
-  const person = authUsers_(APP).filter(function (p) { return p.id === clean(d.memberId); })[0];
-  if (!person) throw new Error('Choose the team member.');
-  const amount = money(d.amount);
-  if (!(amount > 0) || amount > 1000000) throw new Error('Enter the advance amount.');
-  const via = clean(d.via);
-  if (PAY_VIA.indexOf(via) < 0) throw new Error('Choose Cash, UPI or Bank Transfer.');
-  const clientId = clean(d.clientId, 40);
-  const lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-  try {
-    // sent again from a phone that was offline: the same advance is not added twice
-    if (clientId) {
-      const dup = rows(ADV).filter(function (a) { return clean(a['Remarks']) === 'app:' + clientId; })[0];
-      if (dup) return { id: clean(dup['Advance ID']), duplicate: true };
-    }
-    return { id: insertAdvance_(person.name, amount, via, d.ref, d.purpose, u.name, d.date, clientId ? 'app:' + clientId : '') };
-  } finally {
-    lock.releaseLock();
-  }
+  // Direct advances are off. Every advance must go through the
+  // request -> approve -> pay flow so it carries proper approval.
+  // (payAdvance uses insertAdvance_ directly, so paying still works.)
+  throw new Error('Direct advances are off. Create an advance request, get it approved, then pay it.');
 }
 
 /** Adds one row to the Advances tab (call inside the script lock); returns its ADV- id. */

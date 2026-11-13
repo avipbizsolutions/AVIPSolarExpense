@@ -210,7 +210,7 @@ class HomeActivity : AppCompatActivity() {
             if (u.isAccounts) row.addView(tile(tr("Payment करें", "Pay claims"), counts.optInt("toPay"), R.drawable.ic_rupee, Ui.GREEN) {
                 startActivity(Intent(this, TeamClaimsActivity::class.java).putExtra(TeamClaimsActivity.EXTRA_MODE, TeamClaimsActivity.MODE_PAY))
             }, lp(0, WRAP, 1f).margins(this, r = 8))
-            if (u.isAccounts) row.addView(tile(tr("Advance दें", "Give advance"), -1, R.drawable.ic_person, Ui.TEAL) {
+            if (u.isAccounts) row.addView(tile(tr("Team के Advance", "Team advances"), -1, R.drawable.ic_person, Ui.TEAL) {
                 startActivity(Intent(this, AdvancesActivity::class.java).putExtra(AdvancesActivity.EXTRA_TEAM, true))
             }, lp(0, WRAP, 1f))
             body.addView(row, lp().margins(this, b = 8))

@@ -32,8 +32,7 @@ class AdvancesActivity : AppCompatActivity() {
         Lang.load(this)
         val u = Session.user(this) ?: run { finish(); return }
         team = intent.getBooleanExtra(EXTRA_TEAM, false) && u.seesTeam
-        val bottom = if (team && u.isAccounts) pillButton(tr("Advance दें", "Give advance"), Ui.SUN, Ui.TEXT, iconRes = R.drawable.ic_plus) { giveAdvance() }
-            else if (!team) pillButton(tr("Advance माँगें", "Request advance"), Ui.SUN, Ui.TEXT, iconRes = R.drawable.ic_plus) {
+        val bottom = if (!team) pillButton(tr("Advance माँगें", "Request advance"), Ui.SUN, Ui.TEXT, iconRes = R.drawable.ic_plus) {
                 startActivity(android.content.Intent(this, AdvanceRequestsActivity::class.java).putExtra(AdvanceRequestsActivity.EXTRA_MODE, AdvanceRequestsActivity.MODE_NEW))
             } else null
         body = screen(if (team) tr("Team के Advance", "Team advances") else tr("मेरे Advance", "My advances"), if (team) tr("हर व्यक्ति का balance", "Balance of each person") else u.name,
