@@ -229,15 +229,14 @@ class HomeActivity : AppCompatActivity() {
                     addView(text(tr("शुरू का odometer: ", "Start odometer: ") + j.optString("startReading") +
                         (if (j.optString("description").isNotBlank()) " · " + j.optString("description") else ""), 13.5f, Ui.MUTED), lp().margins(context, t = 2))
                     addView(text(tr("लौटने पर tap करें → आखिर के odometer की photo → Claim भेजें", "Tap when you are back → end odometer photo → send claim"), 13f, Ui.BRAND, bold = true), lp().margins(context, t = 6))
+                    addView(text(tr("🗑  Draft हटाएँ", "🗑  Delete draft"), 13.5f, Ui.DANGER, bold = true) {
+                        setPadding(dp(2), dp(10), dp(2), dp(2))
+                        setOnClickListener { deleteDraft(j.optString("id")) }
+                    }, lp().margins(context, t = 4))
                     setOnClickListener {
                         startActivity(Intent(this@HomeActivity, ClaimFormActivity::class.java).putExtra(ClaimFormActivity.EXTRA_JOURNEY, j.optString("id")))
                     }
-                    setOnLongClickListener {
-                        confirm(tr("Draft हटाएँ?", "Delete draft?"), tr("यह Journey draft phone से हट जाएगा।", "This journey draft will be deleted from the phone.")) {
-                            Journeys.remove(this@HomeActivity, j.optString("id")); render()
-                        }
-                        true
-                    }
+                    setOnLongClickListener { deleteDraft(j.optString("id")); true }
                 }, lp().margins(this, b = 8))
             }
         }
@@ -265,6 +264,12 @@ class HomeActivity : AppCompatActivity() {
         }
         shown.forEach { c -> runCatching { body.addView(claimRow(c, showMember = false) { open(c) }, lp().margins(this, b = 8)) } }
         body.addView(View(this), lp(MATCH, dp(20)))
+    }
+
+    private fun deleteDraft(id: String) {
+        confirm(tr("Draft हटाएँ?", "Delete draft?"), tr("यह Journey draft phone से हट जाएगा। यह वापस नहीं आएगा।", "This journey draft will be deleted from the phone. It can't be undone.")) {
+            Journeys.remove(this, id); render()
+        }
     }
 
     /** The "Advance with you" card, the Request-advance button, and any open advance requests. */
