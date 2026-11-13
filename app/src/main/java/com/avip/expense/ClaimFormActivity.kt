@@ -383,7 +383,7 @@ class ClaimFormActivity : AppCompatActivity() {
         if (a > 500000) { amount.error = tr("Amount सही नहीं लगता", "Amount looks wrong"); return }
         if (desc.text.toString().trim().length < 3) { desc.error = tr("किस काम के लिए था, लिखें", "Write what it was for"); return }
         if (paymentMode.isBlank()) { toast(tr("Payment कैसे किया, चुनें", "Choose how it was paid")); return }
-        if (photo.isBlank() && a > 500) {
+        if (photos.isEmpty() && a > 500) {
             confirm(tr("Bill photo नहीं है", "No bill photo"), tr("₹500 से ऊपर के claim में bill ज़रूरी है। बिना bill के claim reject हो सकता है। फिर भी भेजें?", "A bill is required for claims above ₹500. Without it the claim may be rejected. Send anyway?"), tr("भेजें", "Send")) { save(a) }
             return
         }
@@ -559,7 +559,7 @@ class ClaimFormActivity : AppCompatActivity() {
         if (bike == "Company") {
             if (bikeNo.text.toString().trim().length < 4) { bikeNo.error = tr("Bike number डालें", "Enter the bike number"); return }
             if (petrolAmount() <= 0) { petrol.error = tr("Petrol का amount डालें", "Enter the petrol amount"); return }
-            if (photo.isBlank()) { toast(tr("Company bike: petrol bill की photo लगाएँ", "Company bike: add the petrol bill photo")); return }
+            if (photos.isEmpty()) { toast(tr("Company bike: petrol bill की photo लगाएँ", "Company bike: add the petrol bill photo")); return }
         }
         val calc = fuelCalc() ?: run { odoEnd.reading.error = tr("शुरू से ज़्यादा होनी चाहिए", "Must be more than the start"); return }
         if (calc.first > 1500) { odoEnd.reading.error = tr("${Fmt.km(calc.first)} km सही नहीं लगता", "${Fmt.km(calc.first)} km looks wrong"); return }
