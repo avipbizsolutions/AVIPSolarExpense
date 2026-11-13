@@ -1,6 +1,7 @@
 package com.avip.expense
 
 import android.content.Intent
+import android.graphics.Color
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -33,14 +34,22 @@ class TeamActivity : AppCompatActivity() {
     private var person = ""          // advances drill-down
     private var claimStatus = ""     // claims status filter ("" = all)
     private var claimPerson = ""     // claims person filter
+    private var rangeFrom = ""       // claims date range (inclusive), default last 30 days
+    private var rangeTo = ""
     private var loadingAdv = false
     private var loadingClaims = false
+
+    private fun last30Days() {
+        rangeTo = Fmt.today()
+        rangeFrom = Fmt.isoDay(System.currentTimeMillis() - 30L * 86400000)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Lang.load(this)
         val u = Session.user(this) ?: run { finish(); return }
         if (!u.seesTeam) { finish(); return }
+        last30Days()
         body = screen(tr("Team का हिसाब", "Team records"), tr("Advances और Claims, एक जगह", "Advances and claims in one place"),
             right = listOf(barButton(R.drawable.ic_refresh) { loadAll() }),
             onRefresh = { loadAll() }, onSwipe = { swipe = it })
@@ -155,24 +164,76 @@ class TeamActivity : AppCompatActivity() {
     }
 
     private fun renderClaims() {
-        val claims = Claim.list(Store.load(this, "team")?.optJSONArray("claims"))
-        val people = claims.map { it.member }.filter { it.isNotBlank() }.distinct().sorted()
+        val all = Claim.list(Store.load(this, "team")?.optJSONArray("claims"))
+        // ---- date range (default last 30 days)
+        val lo = minOf(Fmt.parseIso(rangeFrom) ?: 0L, Fmt.parseIso(rangeTo) ?: 0L)
+        val hi = maxOf(Fmt.parseIso(rangeFrom) ?: 0L, Fmt.parseIso(rangeTo) ?: 0L) + 86400000 - 1
+        body.addView(horizontal {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(dateBtn(tr("से", "From"), rangeFrom) { pickDate(rangeFrom.ifBlank { Fmt.today() }) { d -> rangeFrom = d; render() } }, lp(0, WRAP, 1f).margins(this, r = 8))
+            addView(dateBtn(tr("तक", "To"), rangeTo) { pickDate(rangeTo.ifBlank { Fmt.today() }) { d -> rangeTo = d; render() } }, lp(0, WRAP, 1f))
+        }, lp().margins(this, b = 6))
+        body.addView(text(tr("पिछले 30 दिन", "Last 30 days"), 13f, Ui.BLUE, bold = true) {
+            setPadding(dp(4), dp(2), dp(4), dp(8)); setOnClickListener { last30Days(); render() }
+        }, lp().margins(this, b = 4))
+
+        // ---- status filter
         body.addView(chips(listOf("All", Status.PENDING, Status.APPROVED, Status.REIMBURSED, Status.REJECTED).map { if (it == "All") it else Status.label(it) },
             if (claimStatus.isBlank()) "All" else Status.label(claimStatus)) { pick ->
             claimStatus = listOf(Status.PENDING, Status.APPROVED, Status.REIMBURSED, Status.REJECTED).firstOrNull { Status.label(it) == pick } ?: ""
             render()
-        }, lp().margins(this, b = 8))
-        if (people.size > 1) body.addView(chips(people, claimPerson) { claimPerson = if (claimPerson == it) "" else it; render() }, lp().margins(this, b = 10))
-        val shown = claims.filter { (claimStatus.isBlank() || it.status == claimStatus) && (claimPerson.isBlank() || it.member == claimPerson) }
+        }, lp().margins(this, b = 10))
+
+        val inRange = all.filter { val t = Fmt.parseIso(it.date); t == null || t in lo..hi }
+            .filter { claimStatus.isBlank() || it.status == claimStatus }
+
+        // ---- team total (all users)
+        val paid = inRange.filter { it.status == Status.REIMBURSED }.sumOf { it.amount }
+        val pending = inRange.filter { it.status == Status.PENDING }.sumOf { it.amount }
+        body.addView(card(16) {
+            addView(text(tr("Team के कुल Claims", "Total claims (team)"), 13f, Ui.MUTED))
+            addView(text(Fmt.rupees(inRange.sumOf { it.amount }), 26f, Ui.TEXT, bold = true))
+            addView(text("${inRange.size} claim · " + tr("Pending ", "Pending ") + Fmt.rupees(pending) + tr(" · मिला ", " · paid ") + Fmt.rupees(paid), 13f, Ui.MUTED), lp().margins(context, t = 4))
+        }, lp().margins(this, b = 12))
+
+        // ---- per person (tap to drill)
+        body.addView(text(tr("व्यक्ति पर tap करें = उसके claims", "Tap a person to see their claims"), 12.5f, Ui.MUTED), lp().margins(this, b = 8))
+        inRange.groupBy { it.member.ifBlank { "—" } }.entries.sortedByDescending { e -> e.value.sumOf { it.amount } }.forEach { (name, list) ->
+            body.addView(card(14) {
+                isClickable = true
+                foreground = context.ripple()
+                if (claimPerson == name) background = rounded(0xFFFFF8E8.toInt(), dpf(16f), Ui.SUN, dp(2))
+                addView(horizontal {
+                    addView(vertical {
+                        addView(text(name, 15f, Ui.TEXT, bold = true))
+                        addView(text("${list.size} claim", 12.5f, Ui.MUTED))
+                    }, lp(0, WRAP, 1f))
+                    addView(text(Fmt.rupees(list.sumOf { it.amount }), 17f, Ui.TEXT, bold = true))
+                })
+                setOnClickListener { claimPerson = if (claimPerson == name) "" else name; render() }
+            }, lp().margins(this, b = 8))
+        }
+
+        // ---- claim list (filtered by selected person)
+        val shown = inRange.filter { claimPerson.isBlank() || it.member == claimPerson }
         body.addView(horizontal {
-            addView(text("${shown.size} claim", 14f, Ui.MUTED, bold = true), lp(0, WRAP, 1f))
-            addView(text(tr("कुल ", "Total ") + Fmt.rupees(shown.sumOf { it.amount }), 15f, Ui.TEXT, bold = true))
-        }, lp().margins(this, b = 8))
-        if (shown.isEmpty() && !loadingClaims) body.addView(note(tr("कोई claim नहीं।", "No claims.")))
+            addView(text(if (claimPerson.isBlank()) tr("सारे Claims", "All claims") else tr("$claimPerson के Claims", "$claimPerson's claims"), 17f, Ui.TEXT, bold = true), lp(0, WRAP, 1f))
+            addView(text(Fmt.rupees(shown.sumOf { it.amount }), 15f, Ui.TEXT, bold = true))
+        }, lp().margins(this, t = 8, b = 8))
+        if (shown.isEmpty() && !loadingClaims) body.addView(note(tr("इस दौरान कोई claim नहीं।", "No claims in this period.")))
         shown.forEach { c ->
             body.addView(claimRow(c, showMember = true, selected = null) {
                 startActivity(Intent(this, ClaimActivity::class.java).putExtra(ClaimActivity.EXTRA_ID, c.id))
             }, lp().margins(this, b = 8))
         }
+    }
+
+    private fun dateBtn(label: String, iso: String, onClick: () -> Unit): View = vertical(10) {
+        background = rounded(Color.WHITE, dpf(12f), 0xFFC8BDD8.toInt(), dp(1))
+        isClickable = true
+        foreground = context.ripple()
+        addView(text(label, 11.5f, Ui.MUTED))
+        addView(text(if (iso.isBlank()) "—" else Fmt.date(iso), 14.5f, Ui.TEXT, bold = true))
+        setOnClickListener { onClick() }
     }
 }
