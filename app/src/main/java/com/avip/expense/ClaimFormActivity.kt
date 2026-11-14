@@ -131,6 +131,7 @@ class ClaimFormActivity : AppCompatActivity() {
         val boot = Store.load(this, "boot")
         val categories = Store.strings(boot, "categories", Store.DEFAULT_CATEGORIES)
         val modes = Store.strings(boot, "paymentModes", Store.DEFAULT_MODES)
+        val bikes = Store.strings(boot, "bikes", Store.DEFAULT_BIKES)
         val bal = Balance.from(Store.load(this, "mine")?.optJSONObject("balance") ?: boot?.optJSONObject("balance"))
         fuelRate = Settings.fuelRate(this)
         // nothing left in the advance: the claim can only be the rider's own money
@@ -149,8 +150,8 @@ class ClaimFormActivity : AppCompatActivity() {
                 bottom = pillButton(tr("Claim भेजें", "Send claim"), Ui.SUN, Ui.TEXT, heightDp = 54) { submit() })
             else -> screen(tr("नया Claim", "New claim"), tr("एक bill = एक claim", "One bill = one claim"), bottom = pillButton(tr("Claim भेजें", "Send claim"), Ui.SUN, Ui.TEXT, heightDp = 54) { submit() })
         }
-        if (starting) body.addView(note(tr("① अभी odometer की photo लें और reading भरें।\n② \"Journey शुरू करें\" दबाएँ।\n③ लौटने पर Home से यही journey खोलें, आखिर की photo लें और claim भेजें।",
-            "① Take a photo of your odometer now and enter the reading.\n② Tap \"Start journey\".\n③ When you are back, open this journey from Home, take the end photo and send the claim."), Ui.BRAND_LIGHT, Ui.BRAND_DARK), lp().margins(this, b = 10))
+        if (starting) body.addView(note(tr("① अभी odometer की photo लें और reading भरें।\n② \"Journey शुरू करें\" दबाएँ।\n③ लौटने पर Home से यही journey खोलें, आखिर की photo लें और claim भेजें।\n📍 Journey के दौरान GPS से दूरी नापी जाएगी और office को claim के साथ दिखेगी।",
+            "① Take a photo of your odometer now and enter the reading.\n② Tap \"Start journey\".\n③ When you are back, open this journey from Home, take the end photo and send the claim.\n📍 During the journey the distance is measured by GPS and shown to the office with the claim."), Ui.BRAND_LIGHT, Ui.BRAND_DARK), lp().margins(this, b = 10))
         else if (fixClaim != null) body.addView(note(tr("Reject का कारण: ", "Reason for rejection: ") + fixClaim!!.remarks.ifBlank { "—" } +
             tr("\nजो गलत था उसे ठीक करें और फिर से भेजें। पुरानी photos लगी रहेंगी।", "\nCorrect what was wrong and send it again. The photos already sent stay attached."), Ui.DANGER_LIGHT, Ui.DANGER), lp().margins(this, b = 10))
         else if (journeyMode) body.addView(note(tr("अब आखिर के odometer की photo लें, reading भरें और Claim भेजें।", "Now take the end odometer photo, enter the reading and send the claim."), Ui.BRAND_LIGHT, Ui.BRAND_DARK), lp().margins(this, b = 10))
@@ -171,7 +172,7 @@ class ClaimFormActivity : AppCompatActivity() {
             addView(dateBtn, lp())
             addView(label(req(tr("किस चीज़ का खर्च (Category)", "Category"))).also { topViews.add(it) })
             catBtn = selector(tr("Category चुनें", "Choose category"), R.drawable.ic_grid) {
-                AlertDialog.Builder(this@ClaimFormActivity).setTitle("Category")
+                AlertDialog.Builder(this@ClaimFormActivity).setTitle(tr("किस चीज़ का खर्च", "Category"))
                     .setItems(categories.toTypedArray()) { _, i ->
                         category = categories[i]; catBtn.text = category; catBtn.setTextColor(Ui.TEXT)
                         val fuel = Settings.isFuel(category)
@@ -208,7 +209,13 @@ class ClaimFormActivity : AppCompatActivity() {
             companyBox = vertical {
                 addView(horizontal {
                     addView(vertical {
-                        bikeNo = field(this, tr("Bike number", "Bike number"), "", "BR01 AB 4521", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS, 0, 20, required = true) {}
+                        // company bikes come from the office sheet (Lists → Company Bikes): pick one, no typing
+                        bikeNo = field(this, tr("कौन सी bike", "Which bike"), "", tr("Bike चुनें ▾", "Choose bike ▾"), InputType.TYPE_NULL, 0, 40, required = true) {}
+                        bikeNo.isFocusable = false; bikeNo.isCursorVisible = false; bikeNo.isLongClickable = false
+                        bikeNo.setOnClickListener {
+                            AlertDialog.Builder(this@ClaimFormActivity).setTitle(tr("Company bike चुनें", "Choose the company bike"))
+                                .setItems(bikes.toTypedArray()) { _, i -> bikeNo.setText(bikes[i]); bikeNo.error = null }.show()
+                        }
                     }, lp(0, WRAP, 1.25f).margins(context, r = 8))
                     addView(vertical {
                         petrolBox = this
@@ -220,6 +227,8 @@ class ClaimFormActivity : AppCompatActivity() {
                 if (!starting) addView(text(tr("नीचे Bill में petrol bill की photo ज़रूरी।", "Petrol bill photo required in Bill below."), 12f, Ui.SUN_TEXT, bold = true), lp().margins(context, t = 4))
             }.apply { visibility = View.GONE }
             addView(companyBox, lp())
+            if (!journeyMode && fixClaim == null) addView(note(tr("ध्यान दें: Fuel / Petrol का claim \"Journey शुरू करें\" से करें। यहाँ से बना fuel claim सिर्फ Atul या Rahul approve करेंगे।",
+                "Note: claim fuel / petrol through \"Start journey\". A fuel claim made here can be approved only by Atul or Rahul."), Ui.SUN_LIGHT, Ui.SUN_TEXT), lp().margins(context, t = 10))
             // start and end odometer side by side
             addView(horizontal {
                 addView(odoTile(odoStart, tr("शुरू", "Start")), lp(0, WRAP, 1f).margins(context, r = 8))
@@ -319,7 +328,7 @@ class ClaimFormActivity : AppCompatActivity() {
             odoStart.reading.setText(j.optString("startReading"))
             showOdo(odoStart)
             bike = j.optString("bike", "Own").ifBlank { "Own" }
-            bikeNo.setText(j.optString("bikeNo"))
+            bikeNo.setText(j.optString("bikeNo").takeIf { b -> bikes.any { it.equals(b, true) } } ?: "")
             showBike()
         }
         if (journeyMode && !starting && site.text.isBlank() && district.text.isBlank()) { siteSection.visibility = View.GONE; siteLink.visibility = View.VISIBLE }
@@ -338,7 +347,7 @@ class ClaimFormActivity : AppCompatActivity() {
             if (!fuel && f.km > 0) km.setText(plain(f.km))
             if (fuel) {
                 bike = if (f.bike == "Company") "Company" else "Own"
-                bikeNo.setText(f.bikeNo)
+                bikeNo.setText(f.bikeNo.takeIf { b -> bikes.any { it.equals(b, true) } } ?: "")
                 if (bike == "Company") petrol.setText(plain(f.amount))
                 keepStart = f.hasOdoStart; keepEnd = f.hasOdoEnd
                 if (f.odoStart > 0) odoStart.reading.setText(plain(f.odoStart))
@@ -433,7 +442,14 @@ class ClaimFormActivity : AppCompatActivity() {
             .put("description", desc.text.toString().trim()).put("site", site.text.toString().trim()).put("district", district.text.toString().trim())
             .put("bike", bike).put("bikeNo", bikeNo.text.toString().trim())
             .put("savedAt", System.currentTimeMillis())
+        if (starting) j.put("startedAt", System.currentTimeMillis())
         Journeys.save(this, j)
+        if (starting) {
+            JourneyTracker.start(this, claimId)
+            val at = SimpleDateFormat("hh:mm a", Locale.ENGLISH).format(Date())
+            celebrate(tr("Journey शुरू हो गई", "Journey started"), tr("$at · शुरू का odometer ${odoStart.reading.text.toString().trim()}\nलौटकर Home से Journey पूरी करें।", "$at · start odometer ${odoStart.reading.text.toString().trim()}\nFinish it from Home when you are back."), start = true) { finish() }
+            return
+        }
         toast(tr("Journey draft save हो गया। लौटने पर Home से खोलें।", "Journey saved as a draft. Open it from the home screen when you are back."))
         finish()
     }
@@ -665,7 +681,7 @@ class ClaimFormActivity : AppCompatActivity() {
 
     private fun updateFuel() {
         if (!::fuelSum.isInitialized) return
-        if (::draftBtn.isInitialized) draftBtn.visibility = if (!starting && fixClaim == null && odoEnd.photo.isBlank()) View.VISIBLE else View.GONE
+        if (::draftBtn.isInitialized) draftBtn.visibility = if (journeyMode && !starting && fixClaim == null && odoEnd.photo.isBlank()) View.VISIBLE else View.GONE
         val same = sameDay(odoStart.time, odoEnd.time)
         val bothPhotos = odoStart.photo.isNotBlank() && odoEnd.photo.isNotBlank()
         dateNote.visibility = if (bothPhotos && same != true) View.VISIBLE else View.GONE
@@ -694,7 +710,7 @@ class ClaimFormActivity : AppCompatActivity() {
         if (odoValue(odoStart) <= 0) { odoStart.reading.error = tr("Reading डालें", "Enter the reading"); return }
         if (odoValue(odoEnd) <= 0) { odoEnd.reading.error = tr("Reading डालें", "Enter the reading"); return }
         if (bike == "Company") {
-            if (bikeNo.text.toString().trim().length < 4) { bikeNo.error = tr("Bike number डालें", "Enter the bike number"); return }
+            if (bikeNo.text.toString().isBlank()) { toast(tr("Company bike चुनें", "Choose the company bike")); return }
             if (petrolAmount() <= 0) { petrol.error = tr("Petrol का amount डालें", "Enter the petrol amount"); return }
             if (photos.isEmpty() && remoteBills == 0) { toast(tr("Company bike: petrol bill की photo लगाएँ", "Company bike: add the petrol bill photo")); return }
         }
@@ -704,7 +720,7 @@ class ClaimFormActivity : AppCompatActivity() {
         if (paymentMode.isBlank()) { toast(tr("Payment कैसे किया, चुनें", "Choose how it was paid")); return }
         confirm(tr("Fuel claim भेजें?", "Send fuel claim?"),
             "${Fmt.km(odoValue(odoStart))} → ${Fmt.km(odoValue(odoEnd))}\n" + (if (bike == "Company")
-                "Company bike ${bikeNo.text.toString().trim().uppercase()}\n${Fmt.km(calc.first)} km · ${Fmt.rupees(calc.second)} · ${perKm(calc.first, calc.second)}"
+                "Company bike · ${bikeNo.text.toString().trim()}\n${Fmt.km(calc.first)} km · ${Fmt.rupees(calc.second)} · ${perKm(calc.first, calc.second)}"
                 else "${Fmt.km(calc.first)} km × ₹${Fmt.km(fuelRate)} = ${Fmt.rupees(calc.second)}"),
             tr("भेजें", "Send")) { save(calc.second) }
     }
@@ -719,14 +735,24 @@ class ClaimFormActivity : AppCompatActivity() {
             .put("km", if (fuel) (fuelCalc()?.first ?: 0.0) else if (kmBox.visibility == View.VISIBLE) km.text.toString().toDoubleOrNull() ?: 0.0 else 0.0)
             .put("submittedOn", Fmt.today())
         if (fuel) claim.put("odoStart", odoValue(odoStart)).put("odoEnd", odoValue(odoEnd)).put("rate", if (bike == "Company") 0.0 else fuelRate)
-            .put("bike", bike).put("bikeNo", if (bike == "Company") bikeNo.text.toString().trim().uppercase() else "")
+            .put("bike", bike).put("bikeNo", if (bike == "Company") bikeNo.text.toString().trim() else "")
+            .put("journey", journeyMode)
             .put("odoStartTime", odoStart.time ?: 0L).put("odoEndTime", odoEnd.time ?: 0L)
             .put("odoStartStamp", odoStart.stamp).put("odoEndStamp", odoEnd.stamp)
         if (fixClaim != null) claim.put("fix", true)
+        if (journeyMode) {
+            JourneyTracker.km(this, claimId)?.let { claim.put("trackKm", it) }
+            JourneyTracker.clear(this, claimId)
+        }
         // saved on the phone at once; it goes to the office in the background (no waiting for the upload)
         Outbox.add(this, claim, photos.toList(), if (fuel) odoStart.photo else "", if (fuel) odoEnd.photo else "")
         Journeys.remove(this, claimId)
         Outbox.flush(this)
+        if (journeyMode) {
+            val km = fuelCalc()?.first
+            celebrate(tr("Journey पूरी हो गई", "Journey finished"), (if (km != null) "${Fmt.km(km)} km · " else "") + Fmt.rupees(a) + tr("\nClaim भेजा जा रहा है।", "\nThe claim is being sent."), start = false) { finish() }
+            return
+        }
         toast(tr("Claim save हो गया — background में भेजा जा रहा है।", "Claim saved. It is being sent in the background."))
         finish()
     }

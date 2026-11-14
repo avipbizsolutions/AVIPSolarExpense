@@ -173,7 +173,9 @@ class TeamActivity : AppCompatActivity() {
             render()
         }, lp().margins(this, b = 10))
         dateSection()
-        if (tab == TAB_ADV) renderAdvances() else renderClaims()
+        if (tab == TAB_ADV && loadingAdv && advData == null) body.addView(skeleton(5))
+        else if (tab == TAB_CLAIMS && loadingClaims && claimsCache.isEmpty()) body.addView(skeleton(5))
+        else if (tab == TAB_ADV) renderAdvances() else renderClaims()
         if (!loadingAdv && !loadingClaims) swipe?.isRefreshing = false
         body.addView(View(this), lp(MATCH, dp(20)))
     }
@@ -273,8 +275,8 @@ class TeamActivity : AppCompatActivity() {
         val all = claimsCache
         val (lo, hi) = rangeBounds()
         // ---- status filter
-        body.addView(chips(listOf("All", Status.PENDING, Status.APPROVED, Status.REIMBURSED, Status.REJECTED).map { if (it == "All") it else Status.label(it) },
-            if (claimStatus.isBlank()) "All" else Status.label(claimStatus)) { pick ->
+        body.addView(chips(listOf("All", Status.PENDING, Status.APPROVED, Status.REIMBURSED, Status.REJECTED).map { if (it == "All") tr("सभी", "All") else Status.label(it) },
+            if (claimStatus.isBlank()) tr("सभी", "All") else Status.label(claimStatus)) { pick ->
             claimStatus = listOf(Status.PENDING, Status.APPROVED, Status.REIMBURSED, Status.REJECTED).firstOrNull { Status.label(it) == pick } ?: ""
             render()
         }, lp().margins(this, b = 10))

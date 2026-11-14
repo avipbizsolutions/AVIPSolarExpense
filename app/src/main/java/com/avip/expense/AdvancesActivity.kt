@@ -64,7 +64,7 @@ class AdvancesActivity : AppCompatActivity() {
     private fun render() {
         body.removeAllViews()
         if (loading) body.addView(updatingBar(), lp())
-        val o = data ?: return
+        val o = data ?: run { if (loading) body.addView(skeleton(4)); return }
         val people = o.optJSONArray("people")
         if (team && people != null) {
             val list = (0 until people.length()).map { Balance.from(people.getJSONObject(it)) }
@@ -182,7 +182,7 @@ class AdvancesActivity : AppCompatActivity() {
         }
         val d = AlertDialog.Builder(this).setTitle(tr("Advance दें", "Give advance"))
             .setView(android.widget.ScrollView(this).apply { addView(box) })
-            .setPositiveButton("Save", null).setNegativeButton("Cancel", null).create()
+            .setPositiveButton(tr("Save करें", "Save"), null).setNegativeButton(tr("रद्द करें", "Cancel"), null).create()
         d.setOnShowListener {
             d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val a = amount.text.toString().toDoubleOrNull() ?: 0.0

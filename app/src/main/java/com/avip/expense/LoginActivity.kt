@@ -62,7 +62,7 @@ class LoginActivity : AppCompatActivity() {
         f.addView(text(tr("Login करें", "Log in"), 20f, Ui.TEXT, bold = true))
         val mobile = field(f, "Mobile Number", "", tr("10 अंकों का number", "10-digit number"), InputType.TYPE_CLASS_PHONE, R.drawable.ic_call, 13, required = true) {}
         val pin = field(f, tr("4 अंकों का PIN", "4-digit PIN"), "", "••••", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD, R.drawable.ic_sign, 4, required = true) {}
-        f.addView(pillButton("Login →", Ui.SUN, Ui.TEXT, heightDp = 56) {
+        f.addView(pillButton(tr("Login करें →", "Login →"), Ui.SUN, Ui.TEXT, heightDp = 56) {
             val m = mobile.text.toString().filter { it.isDigit() }.takeLast(10)
             val p = pin.text.toString().trim()
             if (m.length != 10) { mobile.error = tr("10 अंकों का number डालें", "Enter a 10-digit number"); return@pillButton }

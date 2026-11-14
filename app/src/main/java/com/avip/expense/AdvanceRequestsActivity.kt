@@ -46,7 +46,7 @@ data class AdvRequest(
         fun label(s: String) = when (s) {
             PENDING -> tr("Approval बाकी", "Awaiting approval")
             APPROVED -> tr("Approved, payment बाकी", "Approved, not paid")
-            REJECTED -> "Rejected"
+            REJECTED -> tr("Reject हुआ", "Rejected")
             PAID -> tr("Paid · मिल गया", "Paid")
             QUEUED -> tr("Internet का इंतज़ार", "Waiting for internet")
             else -> s
@@ -274,11 +274,11 @@ class AdvanceRequestsActivity : AppCompatActivity() {
             addView(kv(tr("किसका", "For"), r.member + " · " + r.team))
             addView(kv(tr("किस लिए", "Purpose"), r.purpose))
             if (r.neededBy.isNotBlank()) addView(kv(tr("कब तक", "Needed by"), Fmt.date(r.neededBy)))
-            addView(kv("Payment", r.payVia))
+            addView(kv(tr("Payment कैसे", "Payment"), r.payVia))
             addView(kv(tr("माँगा", "Requested"), r.requestedOn))
             if (r.approvedBy.isNotBlank()) addView(kv(if (r.status == AdvRequest.REJECTED) "Rejected by" else "Approved by", r.approvedBy + " · " + r.approvedOn))
-            if (r.remarks.isNotBlank()) addView(kv("Remarks", r.remarks))
-            if (r.status == AdvRequest.PAID) addView(kv("Paid", Fmt.date(r.paidOn) + " · " + r.payVia + (if (r.paymentRef.isNotBlank()) " · " + r.paymentRef else "") + " · " + r.advanceId))
+            if (r.remarks.isNotBlank()) addView(kv(tr("टिप्पणी", "Remarks"), r.remarks))
+            if (r.status == AdvRequest.PAID) addView(kv(tr("Payment हुआ", "Paid"), Fmt.date(r.paidOn) + " · " + r.payVia + (if (r.paymentRef.isNotBlank()) " · " + r.paymentRef else "") + " · " + r.advanceId))
         }, lp().margins(this, b = 12))
 
         body.addView(section(tr("पुराने Advance का हाल", "Earlier advances")) {
@@ -315,8 +315,8 @@ class AdvanceRequestsActivity : AppCompatActivity() {
 
         when {
             r.canDecide -> body.addView(horizontal {
-                addView(pillButton("Reject", 0xFFFCE8E6.toInt(), Ui.DANGER, heightDp = 52) { decide(r, false) }, lp(0, WRAP, 1f).margins(context, r = 8))
-                addView(pillButton("Approve", Ui.GREEN, heightDp = 52) { decide(r, true) }, lp(0, WRAP, 1f))
+                addView(pillButton(tr("Reject करें", "Reject"), 0xFFFCE8E6.toInt(), Ui.DANGER, heightDp = 52) { decide(r, false) }, lp(0, WRAP, 1f).margins(context, r = 8))
+                addView(pillButton(tr("Approve करें", "Approve"), Ui.GREEN, heightDp = 52) { decide(r, true) }, lp(0, WRAP, 1f))
             }, lp())
             r.status == AdvRequest.PENDING && r.memberId != u.id && u.canApprove -> body.addView(note(
                 tr("यह advance (${r.adminReason.ifBlank { "बड़ी रकम" }}) सिर्फ Atul या Rahul approve कर सकते हैं।", "Only Atul or Rahul can approve this advance (${r.adminReason.ifBlank { "large amount" }})."), Ui.SUN_LIGHT, Ui.SUN_TEXT))
@@ -331,7 +331,7 @@ class AdvanceRequestsActivity : AppCompatActivity() {
         val d = AlertDialog.Builder(this)
             .setTitle(if (approve) tr("${Fmt.rupees(r.amount)} approve करें?", "Approve ${Fmt.rupees(r.amount)}?") else tr("Reject करें?", "Reject?"))
             .setView(vertical(18) { addView(noteBox, lp()) })
-            .setPositiveButton(if (approve) "Approve" else "Reject", null).setNegativeButton("Cancel", null).create()
+            .setPositiveButton(if (approve) tr("Approve करें", "Approve") else tr("Reject करें", "Reject"), null).setNegativeButton(tr("रद्द करें", "Cancel"), null).create()
         d.setOnShowListener {
             d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val n = noteBox.text.toString().trim()
@@ -360,7 +360,7 @@ class AdvanceRequestsActivity : AppCompatActivity() {
             addView(ref, lp().margins(context, t = 10))
         }
         val d = AlertDialog.Builder(this).setTitle(tr("Advance payment", "Advance payment")).setView(box)
-            .setPositiveButton("Mark paid", null).setNegativeButton("Cancel", null).create()
+            .setPositiveButton(tr("Paid mark करें", "Mark paid"), null).setNegativeButton(tr("रद्द करें", "Cancel"), null).create()
         d.setOnShowListener {
             d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 if (via.isBlank()) { toast(tr("Cash / UPI / Bank चुनें", "Choose Cash, UPI or Bank")); return@setOnClickListener }

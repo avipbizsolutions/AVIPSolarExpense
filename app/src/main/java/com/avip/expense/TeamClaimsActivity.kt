@@ -186,7 +186,7 @@ class TeamClaimsActivity : AppCompatActivity() {
         confirm(tr("Approve करें?", "Approve?"), tr("${ids.size} claim · कुल ${Fmt.rupees(sum)}", "${ids.size} claims · total ${Fmt.rupees(sum)}")) {
             sendOrQueue(tr("Approve हो रहा है…", "Approving…"), "decide", JSONObject().put("claimIds", JSONArray(ids)).put("approve", true),
                 "Approve · ${ids.size} claim · ${Fmt.rupees(sum)}", ids) { r ->
-                skippedOr(r) { if (!r.optBoolean("queued")) toast("${r.optInt("done")} claim approved"); selected.clear(); if (r.optBoolean("queued")) render() else load() }
+                skippedOr(r) { if (!r.optBoolean("queued")) toast(tr("${r.optInt("done")} claim approve हो गए", "${r.optInt("done")} claim approved")); selected.clear(); if (r.optBoolean("queued")) render() else load() }
             }
         }
     }

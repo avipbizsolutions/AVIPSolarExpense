@@ -174,12 +174,64 @@ function rows(name) {
   return list;
 }
 
+const OPTIONAL_COLS = ['Claimed Via', 'GPS Distance (km)'];
+const VIA_JOURNEY = 'Start journey';
+const VIA_MANUAL = 'New claim';
+
+/**
+ * Adds what newer versions need to the sheet, once, so nobody has to edit it by hand:
+ * the "Claimed Via" and "GPS Distance (km)" columns of the Expense Log, and the
+ * "Company Bikes" list in the Lists tab (with the three bikes; edit that column to add or remove bikes).
+ */
+function ensureSheet_() {
+  const cache = CacheService.getScriptCache();
+  if (cache.get('sheet-ok-2')) return;
+  const addCol = function (sh, title) {
+    const last = sh.getLastColumn();
+    if (sh.getMaxColumns && last >= sh.getMaxColumns()) sh.insertColumnAfter(last);
+    sh.getRange(1, last + 1).setValue(title);
+    return last + 1;
+  };
+  const log = book().getSheetByName(LOG);
+  if (log) {
+    OPTIONAL_COLS.forEach(function (h) {
+      const heads = log.getRange(1, 1, 1, log.getLastColumn()).getValues()[0].map(function (x) { return String(x).trim(); });
+      if (heads.indexOf(h) < 0) addCol(log, h);
+    });
+  }
+  const lists = book().getSheetByName('Lists');
+  if (lists) {
+    const heads = lists.getRange(1, 1, 1, lists.getLastColumn()).getValues()[0].map(function (x) { return clean(x).toLowerCase(); });
+    if (heads.indexOf('company bikes') < 0) {
+      const col = addCol(lists, 'Company Bikes');
+      lists.getRange(2, col, DEFAULT_BIKES.length, 1).setValues(DEFAULT_BIKES.map(function (b) { return [b]; }));
+    }
+  }
+  SpreadsheetApp.flush();
+  cache.put('sheet-ok-2', '1', 21600);
+}
+const DEFAULT_BIKES = ['Bajaj Chetak', 'HF Deluxe', 'Yamaha FZ'];
+
+/** Company bikes: the "Company Bikes" column of the Lists tab (add, rename or remove bikes there). */
+function companyBikes() {
+  const sh = book().getSheetByName('Lists');
+  if (!sh) return DEFAULT_BIKES;
+  const heads = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(function (h) { return clean(h).toLowerCase(); });
+  const i = heads.indexOf('company bikes');
+  if (i < 0) return DEFAULT_BIKES;
+  const list = listColumn(i + 1);
+  return list.length ? list : DEFAULT_BIKES;
+}
+
 /** Writes only the given columns (never the formula columns Month and Team). */
 function setFields(name, row, obj) {
   const t = table(name);
   // [column, value] pairs, sorted; each contiguous run is written in ONE setValues,
   // so a run is all-or-nothing — a rejected cell can never leave a half-written row.
-  const cells = Object.keys(obj).map(function (k) {
+  const cells = Object.keys(obj).filter(function (k) {
+    // newer columns: skipped (not an error) while the sheet does not have them yet
+    return OPTIONAL_COLS.indexOf(k) < 0 || t.headers.indexOf(k) >= 0;
+  }).map(function (k) {
     const v = obj[k];
     return [t.col(k), v === undefined || v === null ? '' : v];
   }).sort(function (a, b) { return a[0] - b[0]; });
@@ -251,6 +303,8 @@ function adminReason(c, limit) {
   if (money(c['Amount (₹)']) > limit) return 'above ₹' + limit;
   if (['Approver', 'Admin'].indexOf(ownerRole(c)) >= 0) return 'claim of a manager';
   if (odoDatesDiffer(c)) return 'odometer photos on different dates';
+  // claims from before this rule have nothing in "Claimed Via": they stay as they were
+  if (isFuel(c['Category']) && clean(c['Claimed Via']) === VIA_MANUAL) return 'fuel claim not made through Start journey';
   return '';
 }
 /** Only Atul / Rahul (Admin): above the limit, claims of managers, fuel claims with photos on different dates. */
@@ -316,6 +370,9 @@ function claimOut(c, withMember) {
     const g = odoGap_(c);
     if (g) { o.odoGap = g.gap; o.odoPrevEnd = g.prevEnd; o.odoPrevBy = g.prevBy; o.odoPrevDate = g.prevDate; }
   }
+  if (isFuel(c['Category'])) o.viaJourney = clean(c['Claimed Via']) !== VIA_MANUAL;
+  // distance measured by GPS during the journey: only for approvers, accounts and founders
+  if (withMember && num(c['GPS Distance (km)']) > 0) o.trackKm = num(c['GPS Distance (km)']);
   if (withMember) { o.member = clean(c['Team Member']); o.memberId = clean(c['Employee ID']); o.team = clean(c['Team']); }
   return o;
 }
@@ -396,6 +453,7 @@ function advOut(a) {
 
 function bootstrap(d) {
   const u = me(d);
+  try { ensureSheet_(); } catch (_) {}
   try { syncMembers(); } catch (_) {}
   const claims = rows(LOG);
   const advs = rows(ADV);
@@ -405,6 +463,7 @@ function bootstrap(d) {
     paymentModes: listColumn(6),
     paidBy: PAID_BY,
     payVia: PAY_VIA,
+    bikes: companyBikes(),
     balance: balanceFor(u.name, u.id, claims, advs),
     settings: settings(),
     counts: {},
@@ -460,8 +519,15 @@ function submitClaim(d) {
   const fixing = c.fix === true;
   const hasBill = !!d.photo || (Array.isArray(d.photos) && d.photos.length > 0);
   const companyBike = fuel && clean(c.bike).toLowerCase() === 'company';
-  const bikeNo = clean(c.bikeNo, 20).toUpperCase();
-  if (companyBike && bikeNo.length < 4) throw new Error('Company bike: enter the bike number.');
+  let bikeNo = clean(c.bikeNo, 40);
+  if (companyBike) {
+    const bikes = companyBikes();
+    const hit = bikes.filter(function (b) { return b.toLowerCase() === bikeNo.toLowerCase(); })[0];
+    if (!hit) throw new Error('Company bike: choose the bike from the list (' + bikes.join(', ') + '). Update the app if you do not see the list.');
+    bikeNo = hit;
+  }
+  const viaJourney = fuel && c.journey === true;
+  const trackKm = viaJourney && num(c.trackKm) > 0 && num(c.trackKm) < 3000 ? Math.round(num(c.trackKm) * 10) / 10 : '';
   let amount = money(c.amount);
   let odoStart = 0, odoEnd = 0, km = num(c.km), rate = 0, startStamp = null, endStamp = null;
   if (fuel) {
@@ -493,6 +559,7 @@ function submitClaim(d) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
+    try { ensureSheet_(); } catch (_) {}
     const existing = rows(LOG).filter(function (r) { return clean(r['Claim ID']) === id; })[0];
     if (existing) {
       if (!owns(u, existing)) throw new Error('Claim number already used.');
@@ -551,6 +618,8 @@ function submitClaim(d) {
       'Start Photo Time': fuel ? startStamp.time : '',
       'End Photo Time': fuel ? endStamp.time : '',
       'Bike': fuel ? (companyBike ? 'Company bike – ' + bikeNo : 'Own bike') : '',
+      'Claimed Via': fuel ? (viaJourney ? VIA_JOURNEY : VIA_MANUAL) : '',
+      'GPS Distance (km)': trackKm,
     });
     if (extra > 0) {
       append(LOG, {

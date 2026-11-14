@@ -166,7 +166,10 @@ class InboxActivity : AppCompatActivity() {
             render()
         }, lp().margins(this, b = 12))
 
-        if (tab == TAB_CLAIMS) renderClaims() else renderAdvances()
+        // nothing on the phone yet and the list is on its way: placeholders
+        if (tab == TAB_CLAIMS && loadingClaims && claims.isEmpty() && blocked.isEmpty()) body.addView(skeleton(4))
+        else if (tab == TAB_ADV && loadingAdv && advData == null) body.addView(skeleton(3))
+        else if (tab == TAB_CLAIMS) renderClaims() else renderAdvances()
         actionBtn?.visibility = if (tab == TAB_CLAIMS && claims.isNotEmpty()) View.VISIBLE else View.GONE
         if (!loadingClaims && !loadingAdv) swipe?.isRefreshing = false
         body.addView(View(this), lp(MATCH, dp(20)))
@@ -286,7 +289,7 @@ class InboxActivity : AppCompatActivity() {
         confirm(tr("Approve करें?", "Approve?"), tr("${ids.size} claim · कुल ${Fmt.rupees(sum)}", "${ids.size} claims · total ${Fmt.rupees(sum)}")) {
             sendOrQueue(tr("Approve हो रहा है…", "Approving…"), "decide", JSONObject().put("claimIds", JSONArray(ids)).put("approve", true),
                 "Approve · ${ids.size} claim · ${Fmt.rupees(sum)}", ids) { r ->
-                skippedOr(r) { if (!r.optBoolean("queued")) toast("${r.optInt("done")} claim approved"); selected.clear(); if (r.optBoolean("queued")) render() else loadClaims() }
+                skippedOr(r) { if (!r.optBoolean("queued")) toast(tr("${r.optInt("done")} claim approve हो गए", "${r.optInt("done")} claim approved")); selected.clear(); if (r.optBoolean("queued")) render() else loadClaims() }
             }
         }
     }

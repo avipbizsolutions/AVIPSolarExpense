@@ -71,7 +71,7 @@ fun Activity.askText(title: String, hint: String, initial: String = "", required
     val e = input(hint, value = initial, required = required)
     val box = vertical(16) { addView(e, lp()) }
     val d = AlertDialog.Builder(this).setTitle(title).setView(box)
-        .setPositiveButton("OK", null).setNegativeButton("Cancel", null).create()
+        .setPositiveButton("OK", null).setNegativeButton(tr("रद्द करें", "Cancel"), null).create()
     d.setOnShowListener {
         d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             val v = e.text.toString().trim()
@@ -92,7 +92,7 @@ fun Activity.pickDate(initialIso: String, onPick: (String) -> Unit) {
 
 fun Activity.openUrl(url: String) {
     if (url.isBlank()) return
-    try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (_: Exception) { toast("Could not open") }
+    try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (_: Exception) { toast(tr("नहीं खुल सका", "Could not open")) }
 }
 
 fun Activity.call(number: String) {
@@ -171,4 +171,56 @@ fun android.content.Context.updatingBar(): android.view.View = vertical {
 /** A simple message with an OK button. */
 fun Activity.alert(title: String, message: String) {
     androidx.appcompat.app.AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("OK", null).show()
+}
+
+/**
+ * A clear "done" moment: a short tone, a buzz and a big tick with a line of text for about
+ * two seconds, then [then] runs. Used when a journey starts and when it is finished.
+ */
+fun Activity.celebrate(title: String, sub: String, start: Boolean, then: () -> Unit) {
+    try {
+        val tone = android.media.ToneGenerator(android.media.AudioManager.STREAM_NOTIFICATION, 100)
+        tone.startTone(if (start) android.media.ToneGenerator.TONE_PROP_ACK else android.media.ToneGenerator.TONE_PROP_PROMPT, 500)
+        android.os.Handler(mainLooper).postDelayed({ try { tone.release() } catch (_: Exception) {} }, 1200)
+    } catch (_: Exception) {}
+    try { window.decorView.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS) } catch (_: Exception) {}
+    val box = vertical(28) {
+        gravity = android.view.Gravity.CENTER_HORIZONTAL
+        addView(android.widget.FrameLayout(context).apply {
+            background = circle(Ui.GREEN)
+            addView(icon(R.drawable.ic_check, android.graphics.Color.WHITE, 44), android.widget.FrameLayout.LayoutParams(dp(44), dp(44), android.view.Gravity.CENTER))
+        }, lp(dp(84), dp(84)))
+        addView(text(title, 22f, Ui.TEXT, bold = true) { gravity = android.view.Gravity.CENTER }, lp().margins(context, t = 16))
+        if (sub.isNotBlank()) addView(text(sub, 15f, Ui.MUTED) { gravity = android.view.Gravity.CENTER }, lp().margins(context, t = 6))
+    }
+    val d = AlertDialog.Builder(this).setView(box).setCancelable(false).create()
+    try { d.show() } catch (_: Exception) { then(); return }
+    box.scaleX = 0.8f; box.scaleY = 0.8f; box.alpha = 0f
+    box.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(220).start()
+    android.os.Handler(mainLooper).postDelayed({
+        try { if (!isFinishing && !isDestroyed) d.dismiss() } catch (_: Exception) {}
+        then()
+    }, 2000)
+}
+
+/** Grey, gently pulsing placeholder cards shown while the first load is on its way. */
+fun android.content.Context.skeleton(rows: Int = 4): View = vertical {
+    val grey = 0xFFE9E4F0.toInt()
+    repeat(rows) { i ->
+        addView(card(14) {
+            addView(horizontal {
+                addView(vertical {
+                    addView(View(context).apply { background = rounded(grey, dpf(6f)) }, lp(dp(if (i % 2 == 0) 150 else 120), dp(14)))
+                    addView(View(context).apply { background = rounded(grey, dpf(6f)) }, lp(dp(if (i % 2 == 0) 200 else 170), dp(11)).margins(context, t = 10))
+                }, lp(0, WRAP, 1f))
+                addView(View(context).apply { background = rounded(grey, dpf(6f)) }, lp(dp(64), dp(18)))
+            })
+        }, lp().margins(context, b = 8))
+    }
+    android.animation.ObjectAnimator.ofFloat(this, "alpha", 1f, 0.45f).apply {
+        duration = 750
+        repeatMode = android.animation.ValueAnimator.REVERSE
+        repeatCount = android.animation.ValueAnimator.INFINITE
+        start()
+    }
 }

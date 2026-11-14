@@ -66,22 +66,29 @@ class ClaimActivity : AppCompatActivity() {
         }
         if (c.status == Status.REJECTED) body.addView(note(tr("Reject का कारण: ", "Reason for rejection: ") + c.remarks.ifBlank { "—" } + "\n" + c.approvedBy + " · " + Fmt.date(c.approvedOn), Ui.DANGER_LIGHT, Ui.DANGER))
 
-        body.addView(section("Details") {
+        body.addView(section(tr("जानकारी", "Details")) {
             addView(kv(tr("तारीख", "Date"), Fmt.date(c.date)))
-            addView(kv("Category", c.category))
+            addView(kv(tr("किस चीज़ का खर्च", "Category"), c.category))
             addView(kv(tr("पैसे किसने दिए", "Who paid"), when (c.paidBy) { "Advance" -> tr("Advance से", "From advance"); "Company" -> tr("Company ने दिया", "Paid by company"); else -> tr("अपने पैसे से", "Own money") }))
             if (c.paymentMode.isNotBlank()) addView(kv(tr("Payment कैसे", "Paid via"), c.paymentMode))
-            if (c.billNo.isNotBlank()) addView(kv("Bill No.", c.billNo))
+            if (c.billNo.isNotBlank()) addView(kv(tr("Bill नंबर", "Bill No."), c.billNo))
             if (c.site.isNotBlank()) addView(kv("Customer / Site", c.site))
             if (c.district.isNotBlank()) addView(kv(tr("जगह", "Location"), c.district))
             if (c.km > 0) addView(kv("KM", Fmt.km(c.km)))
             if (c.isFuel && c.odoEnd > 0) {
                 addView(kv(tr("Odometer", "Odometer"), Fmt.km(c.odoStart) + " → " + Fmt.km(c.odoEnd)))
-                if (c.bike == "Company") addView(kv("Bike", "Company bike" + if (c.bikeNo.isNotBlank()) " · " + c.bikeNo else ""))
+                if (c.bike == "Company") addView(kv("Bike", tr("Company की bike", "Company bike") + if (c.bikeNo.isNotBlank()) " · " + c.bikeNo else ""))
                 else addView(kv("Bike", tr("अपनी bike", "Own bike")))
                 val rate = if (c.rate > 0) c.rate else Settings.fuelRate(this@ClaimActivity)
                 if (c.odoStartTime.isNotBlank() || c.odoEndTime.isNotBlank())
-                    addView(kv(tr("Photo का समय", "Photo times"), c.odoStartTime.ifBlank { "?" } + " → " + c.odoEndTime.ifBlank { "?" }))
+                    addView(kv(tr("Journey का समय", "Journey time"), journeyTimes(c.odoStartTime, c.odoEndTime)))
+                // GPS distance: the office sends it only to approvers, accounts and founders
+                if (u.seesTeam && c.status != Status.QUEUED && c.trackKm > 0) {
+                    val diff = c.km - c.trackKm
+                    addView(kv(tr("GPS से नापी दूरी", "Distance by GPS"), "${Fmt.km(c.trackKm)} km" + tr(" · odometer ${Fmt.km(c.km)} km", " · odometer ${Fmt.km(c.km)} km"), bold = true))
+                    if (c.km > 0 && diff > maxOf(3.0, c.trackKm * 0.2)) addView(text(tr("⚠ Odometer की दूरी GPS से ${Fmt.km(Math.round(diff * 10) / 10.0)} km ज़्यादा है।", "⚠ The odometer distance is ${Fmt.km(Math.round(diff * 10) / 10.0)} km more than GPS measured."), 13f, Ui.DANGER, bold = true), lp().margins(context, t = 4))
+                } else if (u.seesTeam && c.status != Status.QUEUED && c.viaJourney && !mine) addView(kv(tr("GPS से नापी दूरी", "Distance by GPS"), tr("नहीं मिली", "not recorded")))
+                if (!c.viaJourney && c.status != Status.QUEUED) addView(text(tr("⚠ यह fuel claim \"Journey शुरू करें\" से नहीं बना — Management approval", "⚠ Not made through \"Start journey\": management approval"), 13f, Ui.SUN_TEXT, bold = true), lp().margins(context, t = 4))
                 if (c.odoGap != 0.0) addView(note(
                     (if (c.odoGap > 0) tr("⚠ Odometer मेल नहीं खाता: इस bike की पिछली journey ${Fmt.km(c.odoPrevEnd)} पर खत्म हुई थी, यह ${Fmt.km(c.odoStart)} से शुरू है — बीच के ${Fmt.km(c.odoGap)} km का claim नहीं है।",
                         "⚠ Odometer does not continue: this bike's last journey ended at ${Fmt.km(c.odoPrevEnd)}, this one starts at ${Fmt.km(c.odoStart)} — ${Fmt.km(c.odoGap)} km in between are not claimed.")
@@ -100,11 +107,11 @@ class ClaimActivity : AppCompatActivity() {
         if (c.approvedBy.isNotBlank() || c.status == Status.REIMBURSED) body.addView(section(tr("Approval और Payment", "Approval and payment")) {
             if (c.approvedBy.isNotBlank()) addView(kv(if (c.status == Status.REJECTED) tr("Reject किया", "Rejected by") else tr("Approve किया", "Approved by"), c.approvedBy))
             if (c.approvedOn.isNotBlank()) addView(kv(tr("कब", "When"), c.approvedOn))
-            if (c.remarks.isNotBlank() && c.status != Status.REJECTED) addView(kv("Note", c.remarks))
+            if (c.remarks.isNotBlank() && c.status != Status.REJECTED) addView(kv(tr("टिप्पणी", "Note"), c.remarks))
             if (c.status == Status.REIMBURSED) {
-                addView(kv("Paid on", Fmt.date(c.reimbursedOn), bold = true))
-                addView(kv("Paid via", c.reimbursedVia))
-                if (c.paymentRef.isNotBlank()) addView(kv("Reference", c.paymentRef))
+                addView(kv(tr("Payment की तारीख", "Paid on"), Fmt.date(c.reimbursedOn), bold = true))
+                addView(kv(tr("Payment कैसे", "Paid via"), c.reimbursedVia))
+                if (c.paymentRef.isNotBlank()) addView(kv(tr("Reference नंबर", "Reference"), c.paymentRef))
             }
         })
 
@@ -155,15 +162,16 @@ class ClaimActivity : AppCompatActivity() {
             }
             c.status == Status.PENDING && u.canApprove && !mine && !u.canDecide(c, Settings.approvalLimit(this)) -> {
                 val limit = Settings.approvalLimit(this)
-                actions.addView(note(if (c.odoDatesDiffer && c.amount <= limit) tr("Odometer की photos अलग-अलग तारीख की हैं — सिर्फ Atul या Rahul approve कर सकते हैं।",
+                actions.addView(note(if (c.isFuel && !c.viaJourney && !c.odoDatesDiffer && c.amount <= limit) tr("यह fuel claim \"Journey शुरू करें\" से नहीं बना — सिर्फ Atul या Rahul approve कर सकते हैं।",
+                    "This fuel claim was not made through \"Start journey\": only Atul or Rahul can approve it.") else if (c.odoDatesDiffer && c.amount <= limit) tr("Odometer की photos अलग-अलग तारीख की हैं — सिर्फ Atul या Rahul approve कर सकते हैं।",
                     "The odometer photos are on different dates: only Atul or Rahul can approve this claim.") else if (c.amount > limit) tr("${Fmt.rupees(limit)} से ऊपर का claim — सिर्फ Atul या Rahul approve कर सकते हैं।",
                     "Above ${Fmt.rupees(limit)}: only Atul or Rahul can approve this claim.")
                     else tr("Manager का claim — सिर्फ Atul या Rahul approve कर सकते हैं।", "Claim of a manager: only Atul or Rahul can approve it."), Ui.SUN_LIGHT, Ui.SUN_TEXT), lp())
             }
             c.status == Status.PENDING && u.canApprove && !mine -> {
                 actions.addView(horizontal {
-                    addView(pillButton("Reject", Ui.DANGER_LIGHT, Ui.DANGER) { reject() }, lp(0, WRAP, 1f).margins(context, r = 8))
-                    addView(pillButton("Approve", Ui.GREEN, iconRes = R.drawable.ic_check) { approve() }, lp(0, WRAP, 1.4f))
+                    addView(pillButton(tr("Reject करें", "Reject"), Ui.DANGER_LIGHT, Ui.DANGER) { reject() }, lp(0, WRAP, 1f).margins(context, r = 8))
+                    addView(pillButton(tr("Approve करें", "Approve"), Ui.GREEN, iconRes = R.drawable.ic_check) { approve() }, lp(0, WRAP, 1.4f))
                 }, lp())
             }
             c.status == Status.APPROVED && c.paidBy == "Self" && u.isAccounts -> {
@@ -194,7 +202,7 @@ class ClaimActivity : AppCompatActivity() {
     private fun approve() {
         sendOrQueue(tr("Approve हो रहा है…", "Approving…"), "decide", JSONObject().put("claimId", claim.id).put("approve", true),
             "Approve · " + claim.member + " · " + Fmt.rupees(claim.amount), listOf(claim.id)) { r ->
-            skippedOr(r) { if (!r.optBoolean("queued")) toast("Approved"); finish() }
+            skippedOr(r) { if (!r.optBoolean("queued")) toast(tr("Approve हो गया", "Approved")); finish() }
         }
     }
 
@@ -202,12 +210,24 @@ class ClaimActivity : AppCompatActivity() {
         askText(tr("Reject का कारण", "Reason for rejection"), tr("जैसे: Bill साफ नहीं है", "e.g. Bill is not clear")) { note ->
             sendOrQueue(tr("Reject हो रहा है…", "Rejecting…"), "decide", JSONObject().put("claimId", claim.id).put("approve", false).put("note", note),
                 "Reject · " + claim.member + " · " + Fmt.rupees(claim.amount), listOf(claim.id)) { r ->
-                skippedOr(r) { if (!r.optBoolean("queued")) toast("Rejected"); finish() }
+                skippedOr(r) { if (!r.optBoolean("queued")) toast(tr("Reject हो गया", "Rejected")); finish() }
             }
         }
     }
 
     private fun screenW() = resources.displayMetrics.widthPixels
+
+    /** "10:05 AM → 11:40 AM · 1 h 35 min" from the two GPS-photo times ("yyyy-MM-dd HH:mm"). */
+    private fun journeyTimes(start: String, end: String): String {
+        val f = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
+        val show = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.ENGLISH)
+        val a = try { f.parse(start) } catch (_: Exception) { null }
+        val b = try { f.parse(end) } catch (_: Exception) { null }
+        val base = (a?.let { show.format(it) } ?: "?") + " → " + (b?.let { show.format(it) } ?: "?")
+        if (a == null || b == null || b.time <= a.time) return base
+        val mins = (b.time - a.time) / 60000
+        return base + " · " + (if (mins >= 60) "${mins / 60} h " else "") + "${mins % 60} min"
+    }
 
     private fun loadPhoto(which: String, box: LinearLayout, index: Int = 0, cacheWhich: String = which) {
         busy(tr("Photo आ रही है…", "Loading photo…"), { Api.call(this, "billPhoto", JSONObject().put("claimId", claim.id).put("which", which).put("index", index), timeoutMs = 90000) }) { r ->
@@ -248,7 +268,7 @@ class ClaimActivity : AppCompatActivity() {
             setOnClickListener {
                 AlertDialog.Builder(this@ClaimActivity).setView(ImageView(this@ClaimActivity).apply {
                     setImageBitmap(bmp); adjustViewBounds = true
-                }).setPositiveButton("Close", null).show()
+                }).setPositiveButton(tr("बंद करें", "Close"), null).show()
             }
         }, lp(MATCH, WRAP))
     }
@@ -284,14 +304,14 @@ fun AppCompatActivity.payDialog(ids: List<String>, total: Double, who: String = 
     }
     dateBtn.setOnClickListener { pickDate(date) { d -> date = d; dateBtn.text = tr("तारीख: ", "Date: ") + Fmt.date(d) } }
     val d = AlertDialog.Builder(this).setTitle(tr("Paid mark करें", "Mark as paid")).setView(box)
-        .setPositiveButton("Paid", null).setNegativeButton("Cancel", null).create()
+        .setPositiveButton(tr("Paid करें", "Paid"), null).setNegativeButton(tr("रद्द करें", "Cancel"), null).create()
     d.setOnShowListener {
         d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             if (via.isBlank()) { toast(tr("Cash / UPI / Bank Transfer चुनें", "Choose Cash, UPI or Bank Transfer")); return@setOnClickListener }
             d.dismiss()
             sendOrQueue(tr("Save हो रहा है…", "Saving…"), "markPaid", JSONObject().put("claimIds", JSONArray(ids)).put("via", via)
                 .put("ref", ref.text.toString().trim()).put("date", date), "Paid · " + (if (who.isNotBlank()) "$who · " else "") + "${ids.size} claim · ${Fmt.rupees(total)}", ids) { r ->
-                skippedOr(r) { if (!r.optBoolean("queued")) toast("${r.optInt("done")} claim paid · ${Fmt.rupees(r.optDouble("total"))}"); onDone() }
+                skippedOr(r) { if (!r.optBoolean("queued")) toast(tr("${r.optInt("done")} claim Paid · ${Fmt.rupees(r.optDouble("total"))}", "${r.optInt("done")} claim paid · ${Fmt.rupees(r.optDouble("total"))}")); onDone() }
             }
         }
     }

@@ -26,9 +26,9 @@ object Status {
 
     fun label(s: String) = when (s) {
         PENDING -> tr("Approval बाकी", "Pending approval")
-        APPROVED -> "Approved"
-        REJECTED -> "Rejected"
-        REIMBURSED -> "Paid"
+        APPROVED -> tr("Approve हुआ", "Approved")
+        REJECTED -> tr("Reject हुआ", "Rejected")
+        REIMBURSED -> tr("पैसा मिला", "Paid")
         QUEUED -> tr("भेजा जा रहा है…", "Sending…")
         else -> s
     }
@@ -58,6 +58,10 @@ data class Claim(
     val billCount: Int = 0,
     /** Company bike: start reading minus the bike's previous end reading (0 = continues, or nothing to compare). */
     val odoGap: Double = 0.0, val odoPrevEnd: Double = 0.0, val odoPrevBy: String = "", val odoPrevDate: String = "",
+    /** Fuel: made through Start journey (otherwise only the founders approve it). */
+    val viaJourney: Boolean = false,
+    /** Distance measured by GPS during the journey; the office sends it only to approvers, accounts and founders. */
+    val trackKm: Double = 0.0,
 ) {
     val isFuel get() = Settings.isFuel(category)
 
@@ -78,6 +82,8 @@ data class Claim(
             o.optString("bike"), o.optString("bikeNo"),
             o.optInt("billCount", if (o.optBoolean("hasPhoto")) 1 else 0),
             o.optDouble("odoGap", 0.0), o.optDouble("odoPrevEnd", 0.0), o.optString("odoPrevBy"), o.optString("odoPrevDate"),
+            // an office script older than this rule sends neither flag: no warning then
+            if (o.has("viaJourney")) o.optBoolean("viaJourney") else if (o.has("journey")) o.optBoolean("journey") else true, o.optDouble("trackKm", 0.0),
         )
 
         fun list(a: JSONArray?): List<Claim> = (0 until (a?.length() ?: 0)).map { from(a!!.getJSONObject(it)) }
@@ -157,6 +163,8 @@ object Store {
         "Documents / Printing / Xerox", "Customer Meeting / Marketing", "Office Supplies", "Miscellaneous",
     )
     val DEFAULT_MODES = listOf("Cash", "UPI")
+    /** Company bikes; the office keeps the real list in the sheet (Lists → Company Bikes). */
+    val DEFAULT_BIKES = listOf("Bajaj Chetak", "HF Deluxe", "Yamaha FZ")
     val PAY_VIA = listOf("Cash", "UPI", "Bank Transfer")
 }
 

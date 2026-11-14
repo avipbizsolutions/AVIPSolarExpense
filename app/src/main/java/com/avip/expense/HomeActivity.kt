@@ -25,6 +25,25 @@ class HomeActivity : AppCompatActivity() {
     private lateinit var loading: ProgressBar
     /** Open bike journeys, pinned under the top bar (does not scroll away). */
     private lateinit var journeyBar: LinearLayout
+    /** "2 claims waiting to upload" / "Sent ✓", pinned under the journey bar. */
+    private lateinit var syncBar: LinearLayout
+    private var lastWaiting = 0
+    private var startBtn: View? = null
+    // ---- My claims: search and filters
+    private var query = ""
+    private var monthF = ""      // "yyyy-MM" or "" = all
+    private var catF = ""        // category or "" = all
+    private var claimsBox: LinearLayout? = null
+    private var allClaims = listOf<Claim>()
+    private val searchBox by lazy {
+        input(tr("खोजें: काम, site, amount…", "Search: purpose, site, amount…")).apply {
+            isSingleLine = true
+            setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_search, 0, 0, 0)
+            compoundDrawablePadding = dp(8)
+            compoundDrawableTintList = android.content.res.ColorStateList.valueOf(Ui.MUTED)
+            onChange { query = it.trim(); renderClaimList() }
+        }
+    }
     private var swipe: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null
     private var user: User? = null
     private var filter = "All"
@@ -52,8 +71,10 @@ class HomeActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (user == null) return
+        JourneyTracker.ensure(this)
         render()
-        refresh(soft = true)
+        // claims still on the phone: always try to send them now
+        refresh(soft = runCatching { Outbox.all(this).isEmpty() }.getOrDefault(true))
     }
 
     private fun build() {
@@ -69,7 +90,7 @@ class HomeActivity : AppCompatActivity() {
             addView(topBar("AVIP Solar Expense", u.name + " · " + Role.label(u.role), showBack = false, right = listOf(
                 langToggle(),
                 barButton(R.drawable.ic_logout) {
-                    confirm("Logout?", tr("इस phone से logout करें?", "Log out from this phone?")) {
+                    confirm(tr("Logout करें?", "Log out?"), tr("इस phone से logout करें?", "Log out from this phone?")) {
                         ApprovalAlerts.stop(this@HomeActivity); JourneyReminder.stop(this@HomeActivity); Session.clear(this@HomeActivity); Store.clear(this@HomeActivity); toLogin()
                     }
                 },
@@ -77,6 +98,8 @@ class HomeActivity : AppCompatActivity() {
             addView(loading, lp(MATCH, dp(4)))
             journeyBar = vertical { }
             addView(journeyBar, lp())
+            syncBar = vertical { }
+            addView(syncBar, lp())
             addView(androidx.swiperefreshlayout.widget.SwipeRefreshLayout(context).apply {
                 swipe = this
                 setColorSchemeColors(Ui.BRAND)
@@ -88,9 +111,13 @@ class HomeActivity : AppCompatActivity() {
                 setPadding(dp(16), dp(10), dp(16), dp(14))
                 elevation = dpf(8f)
                 addView(horizontal {
-                    addView(pillButton(tr("Journey शुरू", "Start journey"), Ui.BRAND, heightDp = 54, iconRes = R.drawable.ic_location) {
-                        startActivity(Intent(this@HomeActivity, ClaimFormActivity::class.java).putExtra(ClaimFormActivity.EXTRA_JOURNEY, "new"))
-                    }, lp(0, WRAP, 1f).margins(context, r = 8))
+                    val sb = pillButton(tr("Journey शुरू", "Start journey"), Ui.BRAND, heightDp = 54, iconRes = R.drawable.ic_location) {
+                        // one journey at a time: finish (or delete) the running one first
+                        if (Journeys.all(this@HomeActivity).isNotEmpty()) toast(tr("पहले चल रही Journey पूरी करें", "Finish the running journey first"))
+                        else startActivity(Intent(this@HomeActivity, ClaimFormActivity::class.java).putExtra(ClaimFormActivity.EXTRA_JOURNEY, "new"))
+                    }
+                    startBtn = sb
+                    addView(sb, lp(0, WRAP, 1f).margins(context, r = 8))
                     addView(pillButton(tr("नया Claim", "New claim"), Ui.SUN, Ui.TEXT, heightDp = 54, iconRes = R.drawable.ic_plus) {
                         startActivity(Intent(this@HomeActivity, ClaimFormActivity::class.java))
                     }, lp(0, WRAP, 1f))
@@ -109,6 +136,7 @@ class HomeActivity : AppCompatActivity() {
         if (soft && Store.fetchedRecently("home")) { swipe?.isRefreshing = false; return }
         loadingNow = true
         loading.visibility = View.VISIBLE
+        if (Store.load(this, "mine") == null) render()
         lifecycleScope.launch {
             val r = withContext(Dispatchers.IO) {
                 runCatching {
@@ -219,6 +247,9 @@ class HomeActivity : AppCompatActivity() {
 
         // ---- bike journeys in progress: pinned under the top bar
         runCatching { renderJourneys() }.onFailure { journeyBar.removeAllViews() }
+        runCatching { renderSync() }
+        // first open, nothing saved on the phone yet: placeholders instead of an empty screen
+        if (mine == null && loadingNow) { body.addView(skeleton(5)); return }
 
         // ---- advance & money card (just above My claims)
         runCatching { addAdvanceSection(boot, mine) }
@@ -228,22 +259,98 @@ class HomeActivity : AppCompatActivity() {
         // a rejected claim being sent again is shown once, as "waiting to be sent"
         val queuedIds = queued.map { it.id }.toSet()
         val claims = queued + Claim.list(mine?.optJSONArray("claims")).filter { it.id !in queuedIds }
+        allClaims = claims
         body.addView(horizontal {
             addView(text(tr("मेरे Claims", "My claims"), 18f, Ui.TEXT, bold = true), lp(0, WRAP, 1f))
             addView(text("${claims.size}", 13f, Ui.MUTED))
         }, lp().margins(this, t = 4, b = 8))
-        body.addView(chips(listOf("All", Status.PENDING, Status.APPROVED, Status.REIMBURSED, Status.REJECTED).map { if (it == "All") it else Status.label(it) },
-            if (filter == "All") "All" else Status.label(filter)) { pick ->
-            filter = listOf(Status.PENDING, Status.APPROVED, Status.REIMBURSED, Status.REJECTED).firstOrNull { Status.label(it) == pick } ?: "All"
-            render()
-        }, lp().margins(this, b = 10))
-
-        val shown = claims.filter { filter == "All" || it.status == filter }
-        if (shown.isEmpty()) {
-            body.addView(note(if (claims.isEmpty()) tr("अभी कोई Claim नहीं है। नीचे \"नया Claim डालें\" दबाएँ।", "No claims yet. Tap \"Add new claim\" below.") else tr("इस filter में कोई Claim नहीं।", "No claims in this filter.")))
+        if (claims.size > 3) {
+            (searchBox.parent as? android.view.ViewGroup)?.removeView(searchBox)
+            body.addView(searchBox, lp().margins(this, b = 8))
         }
-        shown.forEach { c -> runCatching { body.addView(claimRow(c, showMember = false) { open(c) }, lp().margins(this, b = 8)) } }
+        body.addView(chips(listOf("All", Status.PENDING, Status.APPROVED, Status.REIMBURSED, Status.REJECTED).map { if (it == "All") tr("सभी", "All") else Status.label(it) },
+            if (filter == "All") tr("सभी", "All") else Status.label(filter)) { pick ->
+            filter = listOf(Status.PENDING, Status.APPROVED, Status.REIMBURSED, Status.REJECTED).firstOrNull { Status.label(it) == pick } ?: "All"
+            renderClaimList()
+        }, lp().margins(this, b = 8))
+        if (claims.size > 3) {
+            val months = claims.map { it.date.take(7) }.filter { it.length == 7 }.distinct().sortedDescending()
+            val cats = claims.map { it.category }.filter { it.isNotBlank() }.distinct().sorted()
+            if (monthF.isNotBlank() && monthF !in months) monthF = ""
+            if (catF.isNotBlank() && catF !in cats) catF = ""
+            body.addView(horizontal {
+                addView(filterBtn(tr("महीना", "Month"), if (monthF.isBlank()) tr("सभी", "All") else monthLabel(monthF)) {
+                    val labels = listOf(tr("सभी महीने", "All months")) + months.map { monthLabel(it) }
+                    androidx.appcompat.app.AlertDialog.Builder(this@HomeActivity).setTitle(tr("महीना चुनें", "Choose month"))
+                        .setItems(labels.toTypedArray()) { _, i -> monthF = if (i == 0) "" else months[i - 1]; render() }.show()
+                }, lp(0, WRAP, 1f).margins(context, r = 8))
+                addView(filterBtn(tr("किस चीज़ का खर्च", "Category"), if (catF.isBlank()) tr("सभी", "All") else catF) {
+                    val labels = listOf(tr("सभी Category", "All categories")) + cats
+                    androidx.appcompat.app.AlertDialog.Builder(this@HomeActivity).setTitle(tr("Category चुनें", "Choose category"))
+                        .setItems(labels.toTypedArray()) { _, i -> catF = if (i == 0) "" else cats[i - 1]; render() }.show()
+                }, lp(0, WRAP, 1f))
+            }, lp().margins(this, b = 10))
+        }
+        claimsBox = vertical { }
+        body.addView(claimsBox, lp())
+        renderClaimList()
         body.addView(View(this), lp(MATCH, dp(20)))
+    }
+
+    private fun monthLabel(ym: String): String = try {
+        java.text.SimpleDateFormat("MMM yyyy", java.util.Locale.ENGLISH).format(java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.US).parse(ym)!!)
+    } catch (_: Exception) { ym }
+
+    private fun filterBtn(label: String, value: String, onClick: () -> Unit): View = vertical(10) {
+        background = rounded(Color.WHITE, dpf(12f), 0xFFC8BDD8.toInt(), dp(1))
+        isClickable = true
+        foreground = context.ripple()
+        addView(text(label, 11.5f, Ui.MUTED))
+        addView(text("$value ▾", 14.5f, Ui.TEXT, bold = true) { maxLines = 1 })
+        setOnClickListener { onClick() }
+    }
+
+    /** Only the list under the filters is redrawn, so typing in the search box is not interrupted. */
+    private fun renderClaimList() {
+        val box = claimsBox ?: return
+        box.removeAllViews()
+        val q = query.lowercase()
+        val shown = allClaims.filter { c ->
+            (filter == "All" || c.status == filter) && (monthF.isBlank() || c.date.startsWith(monthF)) && (catF.isBlank() || c.category == catF) &&
+                (q.isBlank() || listOf(c.description, c.site, c.district, c.category, c.billNo, c.id, Fmt.km(c.amount), Fmt.date(c.date)).any { it.lowercase().contains(q) })
+        }
+        val filtered = filter != "All" || monthF.isNotBlank() || catF.isNotBlank() || q.isNotBlank()
+        if (filtered && shown.isNotEmpty()) box.addView(text("${shown.size} claim · " + tr("कुल ", "total ") + Fmt.rupees(shown.sumOf { it.amount }), 13f, Ui.MUTED, bold = true), lp().margins(this, b = 8))
+        if (shown.isEmpty()) {
+            box.addView(note(if (allClaims.isEmpty()) tr("अभी कोई Claim नहीं है। नीचे \"नया Claim\" दबाएँ।", "No claims yet. Tap \"New claim\" below.") else tr("इस खोज / filter में कोई Claim नहीं।", "No claims match this search or filter.")))
+            if (filtered && allClaims.isNotEmpty()) box.addView(text(tr("Filter हटाएँ", "Clear filters"), 14f, Ui.BLUE, bold = true) {
+                setPadding(dp(4), dp(10), dp(4), dp(10))
+                setOnClickListener { filter = "All"; monthF = ""; catF = ""; query = ""; searchBox.setText(""); render() }
+            })
+        }
+        shown.forEach { c -> runCatching { box.addView(claimRow(c, showMember = false) { open(c) }, lp().margins(this, b = 8)) } }
+    }
+
+    /** Claims still on this phone: how many wait for the internet, any the office refused, and "sent" when they have gone. */
+    private fun renderSync() {
+        syncBar.removeAllViews()
+        val out = Outbox.all(this)
+        val refused = out.count { it.optString("error").isNotBlank() }
+        val waiting = out.size - refused
+        fun line(msg: String, bg: Int, fg: Int, onClick: (() -> Unit)? = null) {
+            syncBar.addView(text(msg, 13.5f, fg, bold = true) {
+                setBackgroundColor(bg)
+                setPadding(dp(16), dp(9), dp(16), dp(9))
+                if (onClick != null) { isClickable = true; setOnClickListener { onClick() } }
+            }, lp())
+        }
+        if (waiting > 0) line(tr("⏳ $waiting claim upload होना बाकी · Internet आते ही अपने आप जाएगा (अभी भेजने के लिए tap करें)", "⏳ $waiting claim" + (if (waiting > 1) "s" else "") + " waiting to upload · goes when the internet is back (tap to send now)"), Ui.SUN_LIGHT, Ui.SUN_TEXT) { refresh() }
+        if (refused > 0) line(tr("✕ $refused claim office ने नहीं लिया — नीचे खोलकर ठीक करें", "✕ $refused claim" + (if (refused > 1) "s" else "") + " not accepted by the office — open below to fix"), Ui.DANGER_LIGHT, Ui.DANGER)
+        if (waiting == 0 && refused == 0 && lastWaiting > 0) {
+            line(tr("✓ सारे claim office पहुँच गए", "✓ Sent — all claims have reached the office"), Ui.GREEN_LIGHT, Ui.GREEN)
+            syncBar.postDelayed({ if (!isFinishing && Outbox.all(this).isEmpty()) syncBar.removeAllViews() }, 5000)
+        }
+        lastWaiting = waiting
     }
 
     /** One pinned row per open journey: since when, a big Finish button, and delete. */
@@ -251,6 +358,7 @@ class HomeActivity : AppCompatActivity() {
         journeyBar.removeAllViews()
         val drafts = Journeys.all(this)
         JourneyReminder.clearIfDone(this)
+        startBtn?.alpha = if (drafts.isEmpty()) 1f else 0.4f
         if (drafts.isEmpty()) return
         val today = Fmt.today()
         drafts.forEach { j ->
@@ -285,7 +393,7 @@ class HomeActivity : AppCompatActivity() {
 
     private fun deleteDraft(id: String) {
         confirm(tr("Draft हटाएँ?", "Delete draft?"), tr("यह Journey draft phone से हट जाएगा। यह वापस नहीं आएगा।", "This journey draft will be deleted from the phone. It can't be undone.")) {
-            Journeys.remove(this, id); render()
+            Journeys.remove(this, id); JourneyTracker.clear(this, id); render()
         }
     }
 
@@ -308,7 +416,7 @@ class HomeActivity : AppCompatActivity() {
             addView(horizontal {
                 addView(stat(tr("Approval बाकी", "Pending approval"), bal.pendingApproval, Ui.SUN), lp(0, WRAP, 1f))
                 addView(stat(tr("Payment बाकी", "To be paid"), bal.toReimburse, 0xFF8EC5FF.toInt()), lp(0, WRAP, 1f))
-                addView(stat("Paid", bal.reimbursed, 0xFF7BD8A6.toInt()), lp(0, WRAP, 1f))
+                addView(stat(tr("पैसा मिला", "Paid"), bal.reimbursed, 0xFF7BD8A6.toInt()), lp(0, WRAP, 1f))
             }, lp().margins(context, t = 16))
             setOnClickListener { startActivity(Intent(this@HomeActivity, AdvancesActivity::class.java)) }
         }, lp().margins(this, t = 4, b = 8))

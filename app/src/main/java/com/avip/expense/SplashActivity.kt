@@ -111,7 +111,7 @@ class SplashActivity : AppCompatActivity() {
         root.addView(progress, lp(dp(200), WRAP))
         status = text(tr("Updates check हो रहे हैं…", "Checking for updates…"), 13f, 0xDDFFFFFF.toInt()) { gravity = Gravity.CENTER }
         root.addView(status, lp(WRAP, WRAP).margins(this, t = 10))
-        retry = pillButton("Retry", Ui.SUN, Ui.TEXT) { start() }.apply { visibility = View.GONE }
+        retry = pillButton(tr("फिर कोशिश करें", "Retry"), Ui.SUN, Ui.TEXT) { start() }.apply { visibility = View.GONE }
         root.addView(retry, lp(dp(160), WRAP).margins(this, t = 16))
         root.addView(text("v" + Updater.currentVersionName(this), 11f, 0x99FFFFFF.toInt()), lp(WRAP, WRAP).margins(this, t = 16))
         setContentView(root)
@@ -193,7 +193,7 @@ class SplashActivity : AppCompatActivity() {
             .setTitle(tr("नया Version ज़रूरी है", "New version required"))
             .setMessage(tr("Version ${release.versionName} के बिना App नहीं खुलेगा। AVIP Solar Expense को अपने updates install करने की अनुमति दें? यह सिर्फ एक बार पूछा जाएगा।", "The app will not open without version ${release.versionName}. Allow AVIP Solar Expense to install its updates? This is asked only once."))
             .setCancelable(false)
-            .setPositiveButton("Allow") { _, _ ->
+            .setPositiveButton(tr("अनुमति दें", "Allow")) { _, _ ->
                 unknownSourcesLauncher.launch(
                     Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
                 )
@@ -212,7 +212,7 @@ class SplashActivity : AppCompatActivity() {
         updateBox?.let { (it.parent as? ViewGroup)?.removeView(it) }
         val box = vertical {
             gravity = Gravity.CENTER_HORIZONTAL
-            addView(pillButton("Update now", Ui.SUN, Ui.TEXT) {
+            addView(pillButton(tr("अभी Update करें", "Update now"), Ui.SUN, Ui.TEXT) {
                 if (Updater.canInstall(this@SplashActivity)) lifecycleScope.launch {
                     progress.visibility = View.VISIBLE
                     (updateBox?.parent as? ViewGroup)?.removeView(updateBox)
