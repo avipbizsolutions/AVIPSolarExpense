@@ -777,7 +777,19 @@ function billPhoto(d) {
   }
   const id = fileIdFromUrl(cell);
   if (!id) throw new Error('No such photo for this claim.');
-  const blob = DriveApp.getFileById(id).getBlob();
+  const file = DriveApp.getFileById(id);
+  // a big photo (sent by an older app version): a smaller copy from Drive downloads much faster
+  try {
+    if (file.getSize() > 220 * 1024) {
+      const res = UrlFetchApp.fetch('https://drive.google.com/thumbnail?id=' + id + '&sz=w1024', {
+        headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+      const small = res.getBlob();
+      if (res.getResponseCode() === 200 && /^image\//.test(String(small.getContentType())) && small.getBytes().length > 5000) {
+        return { mime: small.getContentType(), data: Utilities.base64Encode(small.getBytes()) };
+      }
+    }
+  } catch (_) {}
+  const blob = file.getBlob();
   return { mime: blob.getContentType(), data: Utilities.base64Encode(blob.getBytes()) };
 }
 

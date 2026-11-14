@@ -287,7 +287,7 @@ object Photos {
         } catch (_: Exception) { null }
     }
 
-    /** Reads a photo file and returns base64 JPEG, at most ~1600 px on the long side. */
+    /** Reads a photo file and returns base64 JPEG, shrunk for a fast upload (see writeShrunk). */
     fun base64(path: String): String? {
         val f = File(path)
         if (!f.exists()) return null
@@ -295,6 +295,9 @@ object Photos {
         if (!out.exists()) writeShrunk(decode(f.readBytes()), 0, out)
         return Base64.encodeToString(out.readBytes(), Base64.NO_WRAP)
     }
+
+    private const val SEND_PX = 1024
+    private const val SEND_QUALITY = 70
 
     private fun decode(bytes: ByteArray): Bitmap {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -307,11 +310,12 @@ object Photos {
 
     private fun writeShrunk(src: Bitmap, rotation: Int, out: File) {
         val longSide = max(src.width, src.height)
-        val scale = if (longSide > 1280) 1280f / longSide else 1f
+        // 1024 px and quality 70: about half the bytes of before, bill text and odometer digits still clear
+        val scale = if (longSide > SEND_PX) SEND_PX.toFloat() / longSide else 1f
         val m = Matrix().apply { postScale(scale, scale); if (rotation != 0) postRotate(rotation.toFloat()) }
         val bmp = Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
         ByteArrayOutputStream().use { bos ->
-            bmp.compress(Bitmap.CompressFormat.JPEG, 80, bos)
+            bmp.compress(Bitmap.CompressFormat.JPEG, SEND_QUALITY, bos)
             out.writeBytes(bos.toByteArray())
         }
     }
