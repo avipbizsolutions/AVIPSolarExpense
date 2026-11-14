@@ -121,6 +121,8 @@ class ClaimFormActivity : AppCompatActivity() {
         val modes = Store.strings(boot, "paymentModes", Store.DEFAULT_MODES)
         val bal = Balance.from(Store.load(this, "mine")?.optJSONObject("balance") ?: boot?.optJSONObject("balance"))
         fuelRate = Settings.fuelRate(this)
+        // nothing left in the advance: the claim can only be the rider's own money
+        if (bal.advanceBalance <= 0) paidBy = "Self"
 
         body = when {
             starting -> screen(tr("Journey शुरू करें", "Start journey"), tr("Step 1 / 2 · शुरू के odometer की photo", "Step 1 of 2 · start odometer photo"),
@@ -167,7 +169,7 @@ class ClaimFormActivity : AppCompatActivity() {
                 amount.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 22f)
             }
             addView(amountBox, lp())
-            desc = field(this, tr("किस काम के लिए", "Purpose"), "", tr("जैसे: Danapur site survey visit", "e.g. Danapur site survey visit"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, R.drawable.ic_edit, 300, required = true) {}
+            desc = field(this, if (journeyMode) tr("यात्रा किस काम के लिए", "Purpose of travel") else tr("किस काम के लिए", "Purpose"), "", tr("जैसे: Danapur site survey visit", "e.g. Danapur site survey visit"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, R.drawable.ic_edit, 300, required = true) {}
             kmBox = vertical {
                 visibility = View.GONE
                 km = field(this, tr("कितने KM चले", "KM travelled"), "", tr("जैसे 42", "e.g. 42"), InputType.TYPE_CLASS_NUMBER, R.drawable.ic_location, 5) {}
@@ -219,7 +221,7 @@ class ClaimFormActivity : AppCompatActivity() {
         showBike()
 
         val whoPaid = section(tr("पैसे किसने दिए", "Who paid") + " *") {
-            addView(chips(listOf(tr("Advance से", "From advance"), tr("अपने पैसे से", "Own money")), tr("Advance से", "From advance")) { pick ->
+            addView(chips(listOf(tr("Advance से", "From advance"), tr("अपने पैसे से", "Own money")), if (paidBy == "Self") tr("अपने पैसे से", "Own money") else tr("Advance से", "From advance")) { pick ->
                 paidBy = when (pick) { tr("Advance से", "From advance") -> "Advance"; else -> "Self" }
                 checkAdvance(bal)
             }, lp())
