@@ -84,7 +84,14 @@ jobs:
           cp ../apps-script/Code.gs ../apps-script/AuthClient.gs .
           node -e "new Function(require('fs').readFileSync('Code.gs','utf8'))"
           clasp push -f
-          clasp create-deployment -i "$DEPLOYMENT_ID" -d "GitHub ${GITHUB_SHA::7}"
+          # the deployment the phones use is the one in config.json (…/macros/s/<deployment id>/exec)
+          ID=$(sed -n 's#.*"endpoint"[^"]*"https://script.google.com/macros/s/\([^/"]*\)/exec".*#\1#p' ../config.json)
+          [ -n "$ID" ] || ID=$(printf '%s' "$DEPLOYMENT_ID" | tr -d '[:space:]' | sed 's#.*/macros/s/##; s#/exec.*##')
+          clasp create-deployment -i "$ID" -d "GitHub ${GITHUB_SHA::7}" 2>&1 | tee deploy.log
+          if grep -qiE "invalid|error|not found|denied" deploy.log || ! grep -qE "@[0-9]+" deploy.log; then
+            echo "::error title=Deployment not updated::The code was sent, but the web-app deployment was not updated. See the log."
+            exit 1
+          fi
           echo "Deployed apps-script/Code.gs at ${GITHUB_SHA::7}"
 
       - name: Remove the login file
