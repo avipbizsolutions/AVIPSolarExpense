@@ -72,6 +72,9 @@ jobs:
           echo "Files in the live project:"
           ls -la
           test -f appsscript.json || { echo "::error::The live project has no manifest (appsscript.json); nothing was changed."; exit 1; }
+          echo "Manifest:"; cat appsscript.json; echo
+          # without a "webapp" section an updated deployment would stop being a web app
+          grep -q '"webapp"' appsscript.json || { echo "::error::The manifest has no webapp section; nothing was changed."; exit 1; }
 
       - name: Send the code and update the deployment
         if: steps.ready.outputs.ok == 'true' && env.MODE == 'deploy'
