@@ -112,6 +112,7 @@ const HANDLERS = {
   decideAdvance: decideAdvance,
   payAdvance: payAdvance,
   pending: pending,
+  claimRoute: claimRoute,
 };
 
 /** Run once from the editor. */
@@ -174,7 +175,9 @@ function rows(name) {
   return list;
 }
 
-const OPTIONAL_COLS = ['Claimed Via', 'GPS Distance (km)'];
+const OPTIONAL_COLS = ['Claimed Via', 'GPS Distance (km)', 'GPS Route'];
+/** Columns that hold plain numbers: kept in a number format, so Google never shows them as dates. */
+const NUMBER_COLS = ['KM Travelled', 'Odometer Start', 'Odometer End', 'Rate per KM (₹)', 'GPS Distance (km)'];
 const VIA_JOURNEY = 'Start journey';
 const VIA_MANUAL = 'New claim';
 
@@ -185,7 +188,7 @@ const VIA_MANUAL = 'New claim';
  */
 function ensureSheet_() {
   const cache = CacheService.getScriptCache();
-  if (cache.get('sheet-ok-2')) return;
+  if (cache.get('sheet-ok-4')) return;
   const addCol = function (sh, title) {
     const last = sh.getLastColumn();
     if (sh.getMaxColumns && last >= sh.getMaxColumns()) sh.insertColumnAfter(last);
@@ -198,6 +201,11 @@ function ensureSheet_() {
       const heads = log.getRange(1, 1, 1, log.getLastColumn()).getValues()[0].map(function (x) { return String(x).trim(); });
       if (heads.indexOf(h) < 0) addCol(log, h);
     });
+    const heads2 = log.getRange(1, 1, 1, log.getLastColumn()).getValues()[0].map(function (x) { return String(x).trim(); });
+    NUMBER_COLS.forEach(function (h) {
+      const i = heads2.indexOf(h);
+      if (i >= 0) log.getRange(2, i + 1, Math.max(log.getMaxRows() - 1, 1), 1).setNumberFormat('0.##');
+    });
   }
   const lists = book().getSheetByName('Lists');
   if (lists) {
@@ -208,7 +216,7 @@ function ensureSheet_() {
     }
   }
   SpreadsheetApp.flush();
-  cache.put('sheet-ok-2', '1', 21600);
+  cache.put('sheet-ok-4', '1', 21600);
 }
 const DEFAULT_BIKES = ['Bajaj Chetak', 'HF Deluxe', 'Yamaha FZ'];
 
@@ -258,7 +266,20 @@ function clean(v, max) {
   const s = String(v === undefined || v === null ? '' : v).trim();
   return max ? s.slice(0, max) : s;
 }
-function num(v) { const n = Number(v); return isFinite(n) ? n : 0; }
+/**
+ * A number from a cell. If the sheet column got a date format, Google hands a number back as a
+ * date (12345 → 18 Oct 1933): that is turned back into the number, so readings are never lost.
+ */
+function num(v) {
+  if (v instanceof Date) {
+    let tz = TZ;
+    try { tz = book().getSpreadsheetTimeZone() || TZ; } catch (_) {}
+    const p = Utilities.formatDate(v, tz, 'yyyy-MM-dd HH:mm').match(/\d+/g).map(Number);
+    return Math.round((Date.UTC(p[0], p[1] - 1, p[2], p[3], p[4]) - Date.UTC(1899, 11, 30)) / 8640000) / 10;
+  }
+  const n = Number(v);
+  return isFinite(n) ? n : 0;
+}
 function money(v) { return Math.round(num(v) * 100) / 100; }
 function now() { return new Date(); }
 function iso(v) { return v instanceof Date ? Utilities.formatDate(v, TZ, 'yyyy-MM-dd HH:mm') : (v === undefined || v === null ? '' : v); }
@@ -372,7 +393,8 @@ function claimOut(c, withMember) {
   }
   if (isFuel(c['Category'])) o.viaJourney = clean(c['Claimed Via']) !== VIA_MANUAL;
   // distance measured by GPS during the journey: only for approvers, accounts and founders
-  if (withMember && num(c['GPS Distance (km)']) > 0) o.trackKm = num(c['GPS Distance (km)']);
+  if (withMember && String(c['GPS Distance (km)'] === undefined ? '' : c['GPS Distance (km)']).trim() !== '') o.trackKm = num(c['GPS Distance (km)']);
+  if (withMember && clean(c['GPS Route']).indexOf(';') > 0) o.hasRoute = true;
   if (withMember) { o.member = clean(c['Team Member']); o.memberId = clean(c['Employee ID']); o.team = clean(c['Team']); }
   return o;
 }
@@ -527,7 +549,10 @@ function submitClaim(d) {
     bikeNo = hit;
   }
   const viaJourney = fuel && c.journey === true;
-  const trackKm = viaJourney && num(c.trackKm) > 0 && num(c.trackKm) < 3000 ? Math.round(num(c.trackKm) * 10) / 10 : '';
+  // GPS during the journey: the distance (0 = the phone did not move) and the route as "lat,lng;lat,lng;…"
+  const hasTrack = viaJourney && c.trackKm !== undefined && c.trackKm !== null && c.trackKm !== '' && num(c.trackKm) >= 0 && num(c.trackKm) < 3000;
+  const trackKm = hasTrack ? Math.round(num(c.trackKm) * 10) / 10 : '';
+  const route = viaJourney && /^[-0-9.,;]{5,45000}$/.test(clean(c.track)) ? clean(c.track) : '';
   let amount = money(c.amount);
   let odoStart = 0, odoEnd = 0, km = num(c.km), rate = 0, startStamp = null, endStamp = null;
   if (fuel) {
@@ -620,6 +645,7 @@ function submitClaim(d) {
       'Bike': fuel ? (companyBike ? 'Company bike – ' + bikeNo : 'Own bike') : '',
       'Claimed Via': fuel ? (viaJourney ? VIA_JOURNEY : VIA_MANUAL) : '',
       'GPS Distance (km)': trackKm,
+      'GPS Route': route,
     });
     if (extra > 0) {
       append(LOG, {
@@ -791,6 +817,14 @@ function billPhoto(d) {
   } catch (_) {}
   const blob = file.getBlob();
   return { mime: blob.getContentType(), data: Utilities.base64Encode(blob.getBytes()) };
+}
+
+/** The GPS route of a journey ("lat,lng;lat,lng;…"), for approvers, accounts and founders only. */
+function claimRoute(d) {
+  const u = me(d);
+  if (!seesAll(u)) throw new Error('Only approvers and accounts can see the route.');
+  const c = findClaim(d.claimId);
+  return { route: clean(c['GPS Route']), km: num(c['GPS Distance (km)']), start: iso(c['Start Photo Time']), end: iso(c['End Photo Time']) };
 }
 
 function deleteClaim(d) {

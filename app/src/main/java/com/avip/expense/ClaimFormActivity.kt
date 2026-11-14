@@ -150,8 +150,8 @@ class ClaimFormActivity : AppCompatActivity() {
                 bottom = pillButton(tr("Claim भेजें", "Send claim"), Ui.SUN, Ui.TEXT, heightDp = 54) { submit() })
             else -> screen(tr("नया Claim", "New claim"), tr("एक bill = एक claim", "One bill = one claim"), bottom = pillButton(tr("Claim भेजें", "Send claim"), Ui.SUN, Ui.TEXT, heightDp = 54) { submit() })
         }
-        if (starting) body.addView(note(tr("① अभी odometer की photo लें और reading भरें।\n② \"Journey शुरू करें\" दबाएँ।\n③ लौटने पर Home से यही journey खोलें, आखिर की photo लें और claim भेजें।\n📍 Journey के दौरान GPS से दूरी नापी जाएगी और office को claim के साथ दिखेगी।",
-            "① Take a photo of your odometer now and enter the reading.\n② Tap \"Start journey\".\n③ When you are back, open this journey from Home, take the end photo and send the claim.\n📍 During the journey the distance is measured by GPS and shown to the office with the claim."), Ui.BRAND_LIGHT, Ui.BRAND_DARK), lp().margins(this, b = 10))
+        if (starting) body.addView(note(tr("① अभी odometer की photo लें और reading भरें।\n② \"Journey शुरू करें\" दबाएँ।\n③ लौटने पर Home से यही journey खोलें, आखिर की photo लें और claim भेजें।\n📍 Journey के दौरान GPS से दूरी और रास्ता record होगा और office को claim के साथ दिखेगा।",
+            "① Take a photo of your odometer now and enter the reading.\n② Tap \"Start journey\".\n③ When you are back, open this journey from Home, take the end photo and send the claim.\n📍 During the journey the distance and route are recorded by GPS and shown to the office with the claim."), Ui.BRAND_LIGHT, Ui.BRAND_DARK), lp().margins(this, b = 10))
         else if (fixClaim != null) body.addView(note(tr("Reject का कारण: ", "Reason for rejection: ") + fixClaim!!.remarks.ifBlank { "—" } +
             tr("\nजो गलत था उसे ठीक करें और फिर से भेजें। पुरानी photos लगी रहेंगी।", "\nCorrect what was wrong and send it again. The photos already sent stay attached."), Ui.DANGER_LIGHT, Ui.DANGER), lp().margins(this, b = 10))
         else if (journeyMode) body.addView(note(tr("अब आखिर के odometer की photo लें, reading भरें और Claim भेजें।", "Now take the end odometer photo, enter the reading and send the claim."), Ui.BRAND_LIGHT, Ui.BRAND_DARK), lp().margins(this, b = 10))
@@ -749,6 +749,7 @@ class ClaimFormActivity : AppCompatActivity() {
         if (fixClaim != null) claim.put("fix", true)
         if (journeyMode) {
             JourneyTracker.km(this, claimId)?.let { claim.put("trackKm", it) }
+            JourneyTracker.route(this, claimId).takeIf { it.contains(';') }?.let { claim.put("track", it) }
             JourneyTracker.clear(this, claimId)
         }
         // saved on the phone at once; it goes to the office in the background (no waiting for the upload)

@@ -48,6 +48,7 @@
         <activity android:name=".TeamClaimsActivity" android:exported="false" />
         <activity android:name=".InboxActivity" android:exported="false" />
         <activity android:name=".TeamActivity" android:exported="false" />
+        <activity android:name=".RouteActivity" android:exported="false" />
         <activity
             android:name=".AdvancesActivity"
             android:exported="false"

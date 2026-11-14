@@ -23,8 +23,8 @@ import org.json.JSONObject
 /**
  * Measures how far the phone travels during a bike journey (Start journey → Send claim).
  * Runs as a foreground service with a visible notification, so the rider always knows it is on.
- * Only the total distance is kept (no route, no list of places); it goes with the claim and is
- * shown to approvers, accounts and founders next to the odometer distance.
+ * The total distance and the route travelled go with the claim and are shown to approvers,
+ * accounts and founders next to the odometer distance. Nothing is recorded outside a journey.
  */
 class JourneyTracker : Service(), LocationListener {
 
@@ -69,11 +69,33 @@ class JourneyTracker : Service(), LocationListener {
             try { c.stopService(Intent(c, JourneyTracker::class.java)) } catch (_: Exception) {}
         }
 
-        /** Distance measured for a journey in km, or null when GPS gave too little to say. */
+        /** Distance measured for a journey in km (0 = GPS worked but the phone did not move), or null when GPS never gave a position. */
         fun km(c: Context, journeyId: String): Double? {
             val o = try { JSONObject(prefs(c).getString("j_$journeyId", "") ?: "") } catch (_: Exception) { return null }
-            if (o.optInt("n") < 2) return null
+            if (o.optInt("n") < 1) return null
             return Math.round(o.optDouble("m", 0.0) / 100.0) / 10.0
+        }
+
+        /** The route so far as "lat,lng;lat,lng;…" (at most ~700 points), or "" when there is none. */
+        fun route(c: Context, journeyId: String): String =
+            try { JSONObject(prefs(c).getString("j_$journeyId", "") ?: "").optString("r") } catch (_: Exception) { "" }
+
+        /** A point is added to the route about every 60 m; a very long route is thinned to every second point. */
+        private const val ROUTE_STEP = 60.0
+        private const val ROUTE_MAX = 700
+        private fun addPoint(o: JSONObject, lat: Double, lng: Double, force: Boolean = false) {
+            val r = o.optString("r")
+            if (r.isNotEmpty() && !force) {
+                val last = r.substringAfterLast(';').split(',')
+                val d = FloatArray(1)
+                Location.distanceBetween(last[0].toDouble(), last[1].toDouble(), lat, lng, d)
+                if (d[0] < ROUTE_STEP) return
+            }
+            val pt = String.format(java.util.Locale.US, "%.5f,%.5f", lat, lng)
+            var next = if (r.isEmpty()) pt else "$r;$pt"
+            val parts = next.split(';')
+            if (parts.size > ROUTE_MAX) next = parts.filterIndexed { i, _ -> i % 2 == 0 || i == parts.size - 1 }.joinToString(";")
+            o.put("r", next)
         }
 
         fun clear(c: Context, journeyId: String) {
@@ -128,6 +150,7 @@ class JourneyTracker : Service(), LocationListener {
             if (metres / secs > MAX_SPEED) return
             o.put("m", o.optDouble("m", 0.0) + metres)
         }
+        try { addPoint(o, loc.latitude, loc.longitude) } catch (_: Exception) {}
         o.put("lat", loc.latitude).put("lng", loc.longitude).put("t", now).put("n", o.optInt("n") + 1)
         p.edit().putString("j_$id", o.toString()).apply()
     }
@@ -153,7 +176,7 @@ class JourneyTracker : Service(), LocationListener {
             .setSmallIcon(R.drawable.ic_location)
             .setColor(Ui.BRAND)
             .setContentTitle(tr("Journey चल रही है", "Journey running"))
-            .setContentText(tr("GPS से दूरी नापी जा रही है। लौटकर app में Journey पूरी करें।", "Distance is being measured by GPS. Finish the journey in the app when you are back."))
+            .setContentText(tr("GPS से दूरी और रास्ता record हो रहा है। लौटकर app में Journey पूरी करें।", "Distance and route are being recorded by GPS. Finish the journey in the app when you are back."))
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(PendingIntent.getActivity(this, 2, open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))

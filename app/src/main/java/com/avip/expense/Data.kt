@@ -61,7 +61,9 @@ data class Claim(
     /** Fuel: made through Start journey (otherwise only the founders approve it). */
     val viaJourney: Boolean = false,
     /** Distance measured by GPS during the journey; the office sends it only to approvers, accounts and founders. */
-    val trackKm: Double = 0.0,
+    val trackKm: Double = -1.0,
+    /** A GPS route is saved with the claim (the map is fetched only when opened). */
+    val hasRoute: Boolean = false,
 ) {
     val isFuel get() = Settings.isFuel(category)
 
@@ -83,7 +85,7 @@ data class Claim(
             o.optInt("billCount", if (o.optBoolean("hasPhoto")) 1 else 0),
             o.optDouble("odoGap", 0.0), o.optDouble("odoPrevEnd", 0.0), o.optString("odoPrevBy"), o.optString("odoPrevDate"),
             // an office script older than this rule sends neither flag: no warning then
-            if (o.has("viaJourney")) o.optBoolean("viaJourney") else if (o.has("journey")) o.optBoolean("journey") else true, o.optDouble("trackKm", 0.0),
+            if (o.has("viaJourney")) o.optBoolean("viaJourney") else if (o.has("journey")) o.optBoolean("journey") else true, o.optDouble("trackKm", -1.0), o.optBoolean("hasRoute"),
         )
 
         fun list(a: JSONArray?): List<Claim> = (0 until (a?.length() ?: 0)).map { from(a!!.getJSONObject(it)) }

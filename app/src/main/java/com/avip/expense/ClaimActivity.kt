@@ -83,11 +83,15 @@ class ClaimActivity : AppCompatActivity() {
                 if (c.odoStartTime.isNotBlank() || c.odoEndTime.isNotBlank())
                     addView(kv(tr("Journey का समय", "Journey time"), journeyTimes(c.odoStartTime, c.odoEndTime)))
                 // GPS distance: the office sends it only to approvers, accounts and founders
-                if (u.seesTeam && c.status != Status.QUEUED && c.trackKm > 0) {
+                if (u.seesTeam && c.status != Status.QUEUED && c.trackKm >= 0) {
                     val diff = c.km - c.trackKm
                     addView(kv(tr("GPS से नापी दूरी", "Distance by GPS"), "${Fmt.km(c.trackKm)} km" + tr(" · odometer ${Fmt.km(c.km)} km", " · odometer ${Fmt.km(c.km)} km"), bold = true))
                     if (c.km > 0 && diff > maxOf(3.0, c.trackKm * 0.2)) addView(text(tr("⚠ Odometer की दूरी GPS से ${Fmt.km(Math.round(diff * 10) / 10.0)} km ज़्यादा है।", "⚠ The odometer distance is ${Fmt.km(Math.round(diff * 10) / 10.0)} km more than GPS measured."), 13f, Ui.DANGER, bold = true), lp().margins(context, t = 4))
-                } else if (u.seesTeam && c.status != Status.QUEUED && c.viaJourney && !mine) addView(kv(tr("GPS से नापी दूरी", "Distance by GPS"), tr("नहीं मिली", "not recorded")))
+                    if (c.trackKm == 0.0) addView(text(tr("GPS चालू था, पर phone कहीं गया नहीं।", "GPS was on, but the phone did not move."), 13f, Ui.DANGER, bold = true), lp().margins(context, t = 4))
+                } else if (u.seesTeam && c.status != Status.QUEUED && c.viaJourney) addView(kv(tr("GPS से नापी दूरी", "Distance by GPS"), tr("नहीं मिली (GPS / app बंद)", "not recorded (GPS or app was off)")))
+                if (u.seesTeam && c.hasRoute) addView(pillButton(tr("रास्ते का Map देखें", "View route map"), Ui.BRAND_LIGHT, Ui.BRAND_DARK, heightDp = 44, iconRes = R.drawable.ic_location) {
+                    startActivity(android.content.Intent(this@ClaimActivity, RouteActivity::class.java).putExtra(RouteActivity.EXTRA_ID, c.id))
+                }, lp().margins(context, t = 8, b = 4))
                 if (!c.viaJourney && c.status != Status.QUEUED) addView(text(tr("⚠ यह fuel claim \"Journey शुरू करें\" से नहीं बना — Management approval", "⚠ Not made through \"Start journey\": management approval"), 13f, Ui.SUN_TEXT, bold = true), lp().margins(context, t = 4))
                 if (c.odoGap != 0.0) addView(note(
                     (if (c.odoGap > 0) tr("⚠ Odometer मेल नहीं खाता: इस bike की पिछली journey ${Fmt.km(c.odoPrevEnd)} पर खत्म हुई थी, यह ${Fmt.km(c.odoStart)} से शुरू है — बीच के ${Fmt.km(c.odoGap)} km का claim नहीं है।",
