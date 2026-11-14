@@ -37,7 +37,7 @@ class AdvancesActivity : AppCompatActivity() {
                 startActivity(android.content.Intent(this, AdvanceRequestsActivity::class.java).putExtra(AdvanceRequestsActivity.EXTRA_MODE, AdvanceRequestsActivity.MODE_NEW))
             } else null
         body = screen(if (team) tr("Team के Advance", "Team advances") else tr("मेरे Advance", "My advances"), if (team) tr("हर व्यक्ति का balance", "Balance of each person") else u.name,
-            right = listOf(barButton(R.drawable.ic_refresh) { load() }), bottom = bottom,
+            bottom = bottom,
             onRefresh = { load() }, onSwipe = { swipe = it })
         load()
     }

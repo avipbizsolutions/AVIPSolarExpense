@@ -65,7 +65,6 @@ class HomeActivity : AppCompatActivity() {
             setBackgroundColor(Ui.BG)
             addView(topBar("AVIP Solar Expense", u.name + " · " + Role.label(u.role), showBack = false, right = listOf(
                 langToggle(),
-                barButton(R.drawable.ic_refresh) { refresh() },
                 barButton(R.drawable.ic_logout) {
                     confirm("Logout?", tr("इस phone से logout करें?", "Log out from this phone?")) {
                         ApprovalAlerts.stop(this@HomeActivity); Session.clear(this@HomeActivity); Store.clear(this@HomeActivity); toLogin()

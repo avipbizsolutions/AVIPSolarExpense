@@ -53,7 +53,7 @@ class InboxActivity : AppCompatActivity() {
         actionBtn = if (pay) pillButton(tr("चुने हुए Paid mark करें", "Mark selected as paid"), Ui.GREEN, iconRes = R.drawable.ic_rupee) { payClaims() }
             else pillButton(tr("चुने हुए Approve करें", "Approve selected"), Ui.GREEN, iconRes = R.drawable.ic_check) { approveClaims() }
         body = screen(title, tr("Claims और Advances, एक जगह", "Claims and advances in one place"),
-            right = listOf(barButton(R.drawable.ic_refresh) { loadAll() }), bottom = actionBtn,
+            bottom = actionBtn,
             onRefresh = { loadAll() }, onSwipe = { swipe = it })
     }
 

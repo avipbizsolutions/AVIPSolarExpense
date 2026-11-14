@@ -83,7 +83,6 @@ class TeamActivity : AppCompatActivity() {
         if (!u.seesTeam) { finish(); return }
         applyPreset("30d")
         body = screen(tr("Team का हिसाब", "Team records"), tr("Advances और Claims, एक जगह", "Advances and claims in one place"),
-            right = listOf(barButton(R.drawable.ic_refresh) { loadAll() }),
             onRefresh = { loadAll() }, onSwipe = { swipe = it })
     }
 

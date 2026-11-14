@@ -119,7 +119,6 @@ class AdvanceRequestsActivity : AppCompatActivity() {
                     else -> tr("Advance Approve करें", "Approve advances")
                 }
                 body = screen(title, tr("पुराने advance का हाल साथ में", "With each person's earlier advances"),
-                    right = listOf(barButton(R.drawable.ic_refresh) { load() }),
                     onRefresh = { load() }, onSwipe = { swipe = it })
                 load()
             }
