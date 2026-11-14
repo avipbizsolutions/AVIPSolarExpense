@@ -23,6 +23,8 @@ class HomeActivity : AppCompatActivity() {
 
     private lateinit var body: LinearLayout
     private lateinit var loading: ProgressBar
+    /** Open bike journeys, pinned under the top bar (does not scroll away). */
+    private lateinit var journeyBar: LinearLayout
     private var swipe: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null
     private var user: User? = null
     private var filter = "All"
@@ -44,6 +46,7 @@ class HomeActivity : AppCompatActivity() {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 41)
         }
         ApprovalAlerts.schedule(this)
+        JourneyReminder.schedule(this)
     }
 
     override fun onResume() {
@@ -67,11 +70,13 @@ class HomeActivity : AppCompatActivity() {
                 langToggle(),
                 barButton(R.drawable.ic_logout) {
                     confirm("Logout?", tr("इस phone से logout करें?", "Log out from this phone?")) {
-                        ApprovalAlerts.stop(this@HomeActivity); Session.clear(this@HomeActivity); Store.clear(this@HomeActivity); toLogin()
+                        ApprovalAlerts.stop(this@HomeActivity); JourneyReminder.stop(this@HomeActivity); Session.clear(this@HomeActivity); Store.clear(this@HomeActivity); toLogin()
                     }
                 },
             )))
             addView(loading, lp(MATCH, dp(4)))
+            journeyBar = vertical { }
+            addView(journeyBar, lp())
             addView(androidx.swiperefreshlayout.widget.SwipeRefreshLayout(context).apply {
                 swipe = this
                 setColorSchemeColors(Ui.BRAND)
@@ -212,41 +217,17 @@ class HomeActivity : AppCompatActivity() {
         }
         }.onFailure { }
 
-        // ---- bike journeys in progress (drafts on this phone)
-        runCatching {
-        val drafts = Journeys.all(this)
-        if (drafts.isNotEmpty()) {
-            body.addView(text(tr("चल रही Journey (Draft)", "Journeys in progress (drafts)"), 18f, Ui.TEXT, bold = true), lp().margins(this, t = 4, b = 8))
-            drafts.forEach { j ->
-                val t = j.optLong("startTime", 0L).takeIf { it > 0 } ?: j.optLong("savedAt")
-                val whenTxt = java.text.SimpleDateFormat("dd MMM, hh:mm a", java.util.Locale.ENGLISH).format(java.util.Date(t))
-                body.addView(card(14) {
-                    background = rounded(Ui.BRAND_LIGHT, dpf(16f), Ui.BRAND, dp(1))
-                    isClickable = true
-                    foreground = context.ripple()
-                    addView(text(tr("Journey शुरू: $whenTxt", "Started: $whenTxt"), 15f, Ui.TEXT, bold = true))
-                    addView(text(tr("शुरू का odometer: ", "Start odometer: ") + j.optString("startReading") +
-                        (if (j.optString("description").isNotBlank()) " · " + j.optString("description") else ""), 13.5f, Ui.MUTED), lp().margins(context, t = 2))
-                    addView(text(tr("लौटने पर tap करें → आखिर के odometer की photo → Claim भेजें", "Tap when you are back → end odometer photo → send claim"), 13f, Ui.BRAND, bold = true), lp().margins(context, t = 6))
-                    addView(text(tr("🗑  Draft हटाएँ", "🗑  Delete draft"), 13.5f, Ui.DANGER, bold = true) {
-                        setPadding(dp(2), dp(10), dp(2), dp(2))
-                        setOnClickListener { deleteDraft(j.optString("id")) }
-                    }, lp().margins(context, t = 4))
-                    setOnClickListener {
-                        startActivity(Intent(this@HomeActivity, ClaimFormActivity::class.java).putExtra(ClaimFormActivity.EXTRA_JOURNEY, j.optString("id")))
-                    }
-                    setOnLongClickListener { deleteDraft(j.optString("id")); true }
-                }, lp().margins(this, b = 8))
-            }
-        }
-        }.onFailure { }
+        // ---- bike journeys in progress: pinned under the top bar
+        runCatching { renderJourneys() }.onFailure { journeyBar.removeAllViews() }
 
         // ---- advance & money card (just above My claims)
         runCatching { addAdvanceSection(boot, mine) }
 
         // ---- my claims
         val queued = runCatching { Outbox.asClaims(this) }.getOrDefault(emptyList())
-        val claims = queued + Claim.list(mine?.optJSONArray("claims"))
+        // a rejected claim being sent again is shown once, as "waiting to be sent"
+        val queuedIds = queued.map { it.id }.toSet()
+        val claims = queued + Claim.list(mine?.optJSONArray("claims")).filter { it.id !in queuedIds }
         body.addView(horizontal {
             addView(text(tr("मेरे Claims", "My claims"), 18f, Ui.TEXT, bold = true), lp(0, WRAP, 1f))
             addView(text("${claims.size}", 13f, Ui.MUTED))
@@ -263,6 +244,43 @@ class HomeActivity : AppCompatActivity() {
         }
         shown.forEach { c -> runCatching { body.addView(claimRow(c, showMember = false) { open(c) }, lp().margins(this, b = 8)) } }
         body.addView(View(this), lp(MATCH, dp(20)))
+    }
+
+    /** One pinned row per open journey: since when, a big Finish button, and delete. */
+    private fun renderJourneys() {
+        journeyBar.removeAllViews()
+        val drafts = Journeys.all(this)
+        JourneyReminder.clearIfDone(this)
+        if (drafts.isEmpty()) return
+        val today = Fmt.today()
+        drafts.forEach { j ->
+            val t = j.optLong("startTime", 0L).takeIf { it > 0 } ?: j.optLong("savedAt")
+            val sameDay = Fmt.isoDay(t) == today
+            val since = java.text.SimpleDateFormat(if (sameDay) "hh:mm a" else "dd MMM, hh:mm a", java.util.Locale.ENGLISH).format(java.util.Date(t))
+            val id = j.optString("id")
+            val openIt = { startActivity(Intent(this, ClaimFormActivity::class.java).putExtra(ClaimFormActivity.EXTRA_JOURNEY, id)) }
+            journeyBar.addView(horizontal {
+                gravity = Gravity.CENTER_VERTICAL
+                setBackgroundColor(if (sameDay) Ui.BRAND_LIGHT else Ui.SUN_LIGHT)
+                setPadding(dp(16), dp(10), dp(8), dp(10))
+                isClickable = true
+                foreground = context.ripple()
+                setOnClickListener { openIt() }
+                addView(vertical {
+                    addView(text(tr("🏍 Journey चल रही है · $since से", "🏍 Journey running since $since"), 14.5f, Ui.TEXT, bold = true) { maxLines = 1 })
+                    val sub = listOf(tr("शुरू: ", "Start: ") + j.optString("startReading"), j.optString("description")).filter { it.isNotBlank() && it != tr("शुरू: ", "Start: ") }.joinToString(" · ")
+                    addView(text(if (sameDay) sub else tr("अभी तक पूरी नहीं हुई · ", "Not finished yet · ") + sub, 12.5f, if (sameDay) Ui.MUTED else Ui.SUN_TEXT) { maxLines = 1 }, lp().margins(context, t = 1))
+                }, lp(0, WRAP, 1f).margins(context, r = 8))
+                addView(pillButton(tr("पूरी करें", "Finish"), Ui.SUN, Ui.TEXT, heightDp = 40) { openIt() })
+                addView(icon(R.drawable.ic_delete, Ui.DANGER, 20).apply {
+                    setPadding(dp(10), dp(10), dp(10), dp(10))
+                    isClickable = true
+                    contentDescription = tr("Draft हटाएँ", "Delete draft")
+                    setOnClickListener { deleteDraft(id) }
+                }, lp(dp(40), dp(40)).margins(context, l = 2))
+            }, lp())
+            journeyBar.addView(View(this).apply { setBackgroundColor(Ui.LINE) }, lp(MATCH, dp(1)))
+        }
     }
 
     private fun deleteDraft(id: String) {

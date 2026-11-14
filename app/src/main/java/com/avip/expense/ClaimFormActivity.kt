@@ -28,6 +28,8 @@ class ClaimFormActivity : AppCompatActivity() {
     companion object {
         /** "new" = start a bike journey; otherwise the id of a journey draft to finish. */
         const val EXTRA_JOURNEY = "journey"
+        /** Id of the person's own rejected claim, to correct and send again. */
+        const val EXTRA_FIX = "fix"
     }
 
     private var date = Fmt.today()
@@ -85,6 +87,11 @@ class ClaimFormActivity : AppCompatActivity() {
     /** Step 1 of a bike journey: only the start odometer is asked; everything else comes at the end. */
     private var starting = false
     private lateinit var draftBtn: View
+    /** A rejected claim being corrected: its photos are already with the office and stay unless retaken. */
+    private var fixClaim: Claim? = null
+    private var keepStart = false
+    private var keepEnd = false
+    private var remoteBills = 0
     private lateinit var dateNote: android.widget.TextView
 
     private fun newClaimId(): String {
@@ -115,16 +122,27 @@ class ClaimFormActivity : AppCompatActivity() {
         journeyMode = jx != null
         starting = jx == "new"
         journey = if (jx != null && jx != "new") Journeys.get(this, jx) else null
-        claimId = journey?.optString("id")?.takeIf { it.isNotBlank() } ?: newClaimId()
+        val fx = intent.getStringExtra(EXTRA_FIX)
+        if (fx != null) {
+            fixClaim = Claim.list(Store.load(this, "mine")?.optJSONArray("claims")).firstOrNull { it.id == fx && it.status == Status.REJECTED }
+            if (fixClaim == null) { finish(); return }
+        }
+        claimId = fixClaim?.id ?: journey?.optString("id")?.takeIf { it.isNotBlank() } ?: newClaimId()
         val boot = Store.load(this, "boot")
         val categories = Store.strings(boot, "categories", Store.DEFAULT_CATEGORIES)
         val modes = Store.strings(boot, "paymentModes", Store.DEFAULT_MODES)
         val bal = Balance.from(Store.load(this, "mine")?.optJSONObject("balance") ?: boot?.optJSONObject("balance"))
         fuelRate = Settings.fuelRate(this)
         // nothing left in the advance: the claim can only be the rider's own money
+        fixClaim?.let { f ->
+            paidBy = if (f.paidBy == "Advance") "Advance" else "Self"
+            paymentMode = f.paymentMode.takeIf { it in modes } ?: "Cash"
+        }
         if (bal.advanceBalance <= 0) paidBy = "Self"
 
         body = when {
+            fixClaim != null -> screen(tr("ठीक करके फिर भेजें", "Fix and resend"), fixClaim!!.category + " · " + Fmt.date(fixClaim!!.date),
+                bottom = pillButton(tr("फिर से भेजें", "Send again"), Ui.SUN, Ui.TEXT, heightDp = 54) { submit() })
             starting -> screen(tr("Journey शुरू करें", "Start journey"), tr("Step 1 / 2 · शुरू के odometer की photo", "Step 1 of 2 · start odometer photo"),
                 bottom = pillButton(tr("Journey शुरू करें", "Start journey"), Ui.BRAND, heightDp = 54, iconRes = R.drawable.ic_location) { saveDraft() })
             journeyMode -> screen(tr("Journey पूरी करें", "Finish journey"), tr("Step 2 / 2 · आखिर की photo → Claim भेजें", "Step 2 of 2 · end odometer photo → send claim"),
@@ -133,6 +151,8 @@ class ClaimFormActivity : AppCompatActivity() {
         }
         if (starting) body.addView(note(tr("① अभी odometer की photo लें और reading भरें।\n② \"Journey शुरू करें\" दबाएँ।\n③ लौटने पर Home से यही journey खोलें, आखिर की photo लें और claim भेजें।",
             "① Take a photo of your odometer now and enter the reading.\n② Tap \"Start journey\".\n③ When you are back, open this journey from Home, take the end photo and send the claim."), Ui.BRAND_LIGHT, Ui.BRAND_DARK), lp().margins(this, b = 10))
+        else if (fixClaim != null) body.addView(note(tr("Reject का कारण: ", "Reason for rejection: ") + fixClaim!!.remarks.ifBlank { "—" } +
+            tr("\nजो गलत था उसे ठीक करें और फिर से भेजें। पुरानी photos लगी रहेंगी।", "\nCorrect what was wrong and send it again. The photos already sent stay attached."), Ui.DANGER_LIGHT, Ui.DANGER), lp().margins(this, b = 10))
         else if (journeyMode) body.addView(note(tr("अब आखिर के odometer की photo लें, reading भरें और Claim भेजें।", "Now take the end odometer photo, enter the reading and send the claim."), Ui.BRAND_LIGHT, Ui.BRAND_DARK), lp().margins(this, b = 10))
         val topViews = mutableListOf<View>()
         var petrolBox: View? = null
@@ -170,6 +190,8 @@ class ClaimFormActivity : AppCompatActivity() {
             }
             addView(amountBox, lp())
             desc = field(this, if (journeyMode) tr("यात्रा किस काम के लिए", "Purpose of travel") else tr("किस काम के लिए", "Purpose"), "", tr("जैसे: Danapur site survey visit", "e.g. Danapur site survey visit"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, R.drawable.ic_edit, 300, required = true) {}
+            // the person's recent purposes, one tap instead of typing
+            suggest(this, recent(journeyMode) { it.description }.map { it.first }) { desc.setText(it); desc.setSelection(desc.text.length) }
             kmBox = vertical {
                 visibility = View.GONE
                 km = field(this, tr("कितने KM चले", "KM travelled"), "", tr("जैसे 42", "e.g. 42"), InputType.TYPE_CLASS_NUMBER, R.drawable.ic_location, 5) {}
@@ -229,7 +251,7 @@ class ClaimFormActivity : AppCompatActivity() {
             addView(advanceNote, lp().margins(context, t = 8))
             addView(text(tr("Advance से = आपके Advance में से कटेगा। अपने पैसे से = Office आपको वापस देगा।", "From advance = deducted from your advance. Own money = the office pays you back."), 12.5f, Ui.MUTED), lp().margins(context, t = 8))
             addView(label(req(tr("Payment कैसे किया", "How was it paid"))))
-            addView(chips(modes, "Cash") { paymentMode = it }, lp())
+            addView(chips(modes, paymentMode) { paymentMode = it }, lp())
             checkAdvance(bal)
         }
         body.addView(whoPaid)
@@ -252,7 +274,23 @@ class ClaimFormActivity : AppCompatActivity() {
         val siteSection = section(tr("Site (अगर site का खर्च है)", "Site (for site expenses)")) {
             site = field(this, tr("Customer / Site का नाम", "Customer / site name"), "", tr("जैसे: Ramesh Kumar", "e.g. Ramesh Kumar"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS, R.drawable.ic_person, 100) {}
             district = field(this, tr("District / जगह", "District / location"), "", tr("जैसे: Danapur, Patna", "e.g. Danapur, Patna"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS, R.drawable.ic_location, 80) {}
+            val sites = recent(null) { it.site }
+            if (sites.isNotEmpty()) {
+                addView(text(tr("हाल की sites", "Recent sites"), 12f, Ui.MUTED, bold = true), lp().margins(context, t = 10))
+                suggest(this, sites.map { it.first }) { name ->
+                    site.setText(name)
+                    sites.firstOrNull { it.first == name }?.second?.district?.takeIf { it.isNotBlank() }?.let { district.setText(it) }
+                }
+            }
         }
+        // a journey rarely needs the site: it opens only when asked for
+        val siteLink = text(tr("＋ Site की जानकारी जोड़ें (ज़रूरी नहीं)", "＋ Add site details (optional)"), 14.5f, Ui.BRAND, bold = true) {
+            gravity = Gravity.CENTER
+            setPadding(dp(8), dp(14), dp(8), dp(14))
+            visibility = View.GONE
+            setOnClickListener { visibility = View.GONE; siteSection.visibility = View.VISIBLE }
+        }
+        body.addView(siteLink, lp())
         body.addView(siteSection)
         showPhoto()
         updateBill()
@@ -284,7 +322,64 @@ class ClaimFormActivity : AppCompatActivity() {
             bikeNo.setText(j.optString("bikeNo"))
             showBike()
         }
+        if (journeyMode && !starting && site.text.isBlank() && district.text.isBlank()) { siteSection.visibility = View.GONE; siteLink.visibility = View.VISIBLE }
+        fixClaim?.let { f ->
+            // the category and date of a claim stay as they were; everything else can be corrected
+            category = f.category; catBtn.text = category; date = f.date.ifBlank { date }
+            topViews.forEach { it.visibility = View.GONE }
+            dateBtn.visibility = View.GONE; catBtn.visibility = View.GONE
+            val fuel = Settings.isFuel(category)
+            kmBox.visibility = if (needsKm(category) && !fuel) View.VISIBLE else View.GONE
+            fuelBox.visibility = if (fuel) View.VISIBLE else View.GONE
+            amountBox.visibility = if (fuel) View.GONE else View.VISIBLE
+            amount.setText(plain(f.amount))
+            desc.setText(f.description.substringBefore(" (Advance से").trim())
+            site.setText(f.site); district.setText(f.district); billNo.setText(f.billNo)
+            if (!fuel && f.km > 0) km.setText(plain(f.km))
+            if (fuel) {
+                bike = if (f.bike == "Company") "Company" else "Own"
+                bikeNo.setText(f.bikeNo)
+                if (bike == "Company") petrol.setText(plain(f.amount))
+                keepStart = f.hasOdoStart; keepEnd = f.hasOdoEnd
+                if (f.odoStart > 0) odoStart.reading.setText(plain(f.odoStart))
+                if (f.odoEnd > 0) odoEnd.reading.setText(plain(f.odoEnd))
+                showOdo(odoStart); showOdo(odoEnd)
+                showBike()
+            }
+            remoteBills = if (f.hasPhoto) maxOf(f.billCount, 1) else 0
+            showPhoto(); updateBill(); checkAdvance(bal)
+        }
         updateFuel()
+    }
+
+    private fun plain(v: Double) = if (v % 1.0 == 0.0) v.toLong().toString() else v.toString()
+
+    /**
+     * The person's latest distinct values of one field (purpose, site), newest first, each with the claim it came from.
+     * fuelOnly: true = bike journeys only, false = other claims only, null = all.
+     */
+    private fun recent(fuelOnly: Boolean?, pick: (Claim) -> String): List<Pair<String, Claim>> = try {
+        (Outbox.asClaims(this) + Claim.list(Store.load(this, "mine")?.optJSONArray("claims")))
+            .filter { fuelOnly == null || it.isFuel == fuelOnly }
+            .sortedByDescending { it.date + it.submittedOn }
+            .map { pick(it).substringBefore(" (Advance से").trim() to it }
+            .filter { it.first.length >= 3 }
+            .distinctBy { it.first.lowercase() }
+            .take(5)
+    } catch (_: Exception) { emptyList() }
+
+    /** A row of small chips under a field: tap one to fill the field. */
+    private fun suggest(parent: LinearLayout, items: List<String>, onPick: (String) -> Unit) {
+        if (items.isEmpty()) return
+        val row = horizontal { }
+        items.forEach { s ->
+            row.addView(pill(if (s.length > 30) s.take(29) + "…" else s, Ui.BRAND_LIGHT, Ui.BRAND_DARK).apply {
+                setPadding(dp(12), dp(9), dp(12), dp(9))
+                isClickable = true
+                setOnClickListener { onPick(s) }
+            }, lp(WRAP, WRAP).margins(this, r = 6))
+        }
+        parent.addView(android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(row) }, lp().margins(this, t = 8))
     }
 
     /** The bill notice: the ₹500 rule always, plus the fuel/bike lines only for Fuel / Petrol. */
@@ -386,7 +481,8 @@ class ClaimFormActivity : AppCompatActivity() {
         photoBox.removeAllViews()
         photos.removeAll { !File(it).exists() }
         if (photos.isEmpty()) {
-            photoBox.addView(note(tr("अभी कोई photo नहीं लगी।", "No photo added yet."), Ui.SUN_LIGHT, Ui.SUN_TEXT))
+            photoBox.addView(if (remoteBills > 0) note(tr("$remoteBills bill photo पहले से लगी है। नई photo तभी लगाएँ जब पुरानी बदलनी हो।", "$remoteBills bill photo" + (if (remoteBills > 1) "s are" else " is") + " already attached. Add a new photo only to replace " + (if (remoteBills > 1) "them." else "it.")), Ui.GREEN_LIGHT, Ui.TEXT)
+                else note(tr("अभी कोई photo नहीं लगी।", "No photo added yet."), Ui.SUN_LIGHT, Ui.SUN_TEXT))
             return
         }
         val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
@@ -415,7 +511,7 @@ class ClaimFormActivity : AppCompatActivity() {
         if (a > 500000) { amount.error = tr("Amount सही नहीं लगता", "Amount looks wrong"); return }
         if (desc.text.toString().trim().length < 3) { desc.error = tr("किस काम के लिए था, लिखें", "Write what it was for"); return }
         if (paymentMode.isBlank()) { toast(tr("Payment कैसे किया, चुनें", "Choose how it was paid")); return }
-        if (photos.isEmpty() && a > 500) {
+        if (photos.isEmpty() && remoteBills == 0 && a > 500) {
             confirm(tr("Bill photo नहीं है", "No bill photo"), tr("₹500 से ऊपर के claim में bill ज़रूरी है। बिना bill के claim reject हो सकता है। फिर भी भेजें?", "A bill is required for claims above ₹500. Without it the claim may be rejected. Send anyway?"), tr("भेजें", "Send")) { save(a) }
             return
         }
@@ -533,6 +629,12 @@ class ClaimFormActivity : AppCompatActivity() {
 
     private fun showOdo(o: Odo) {
         o.box.removeAllViews()
+        if ((o.photo.isBlank() || !File(o.photo).exists()) && (if (o === odoStart) keepStart else keepEnd)) {
+            o.box.addView(icon(R.drawable.ic_check, Ui.GREEN, 30), lp(dp(30), dp(30)))
+            o.box.addView(text(tr("Photo पहले से लगी है", "Photo already sent"), 12.5f, Ui.GREEN, bold = true), lp(WRAP, WRAP).margins(this, t = 6))
+            o.cap.text = tr("बदलनी हो तो tap करें", "tap to retake")
+            return
+        }
         if (o.photo.isBlank() || !File(o.photo).exists()) {
             o.box.addView(icon(R.drawable.ic_camera, Ui.BRAND, 30), lp(dp(30), dp(30)))
             o.box.addView(text(tr("Tap: GPS photo", "Tap: GPS photo"), 12.5f, Ui.BRAND, bold = true), lp(WRAP, WRAP).margins(this, t = 6))
@@ -563,7 +665,7 @@ class ClaimFormActivity : AppCompatActivity() {
 
     private fun updateFuel() {
         if (!::fuelSum.isInitialized) return
-        if (::draftBtn.isInitialized) draftBtn.visibility = if (!starting && odoEnd.photo.isBlank()) View.VISIBLE else View.GONE
+        if (::draftBtn.isInitialized) draftBtn.visibility = if (!starting && fixClaim == null && odoEnd.photo.isBlank()) View.VISIBLE else View.GONE
         val same = sameDay(odoStart.time, odoEnd.time)
         val bothPhotos = odoStart.photo.isNotBlank() && odoEnd.photo.isNotBlank()
         dateNote.visibility = if (bothPhotos && same != true) View.VISIBLE else View.GONE
@@ -582,16 +684,19 @@ class ClaimFormActivity : AppCompatActivity() {
     }
 
     private fun submitFuel() {
-        if (odoStart.photo.isBlank()) { toast(tr("शुरू के odometer की photo लगाएँ", "Add the start odometer photo")); return }
-        if (odoEnd.photo.isBlank()) { toast(tr("आखिर के odometer की photo लगाएँ", "Add the end odometer photo")); return }
-        if (odoStart.stamp.isBlank() || odoEnd.stamp.isBlank()) { toast(tr("Odometer photos GPS Camera से फिर लें", "Take the odometer photos again with the GPS camera")); return }
-        if ((odoEnd.time ?: 0L) <= (odoStart.time ?: 0L)) { toast(tr("आखिर की photo शुरू की photo के बाद की होनी चाहिए", "The end photo must be newer than the start photo")); return }
+        // correcting a rejected claim: a photo already with the office counts, unless it is retaken
+        val ks = keepStart && odoStart.photo.isBlank()
+        val ke = keepEnd && odoEnd.photo.isBlank()
+        if (odoStart.photo.isBlank() && !ks) { toast(tr("शुरू के odometer की photo लगाएँ", "Add the start odometer photo")); return }
+        if (odoEnd.photo.isBlank() && !ke) { toast(tr("आखिर के odometer की photo लगाएँ", "Add the end odometer photo")); return }
+        if ((!ks && odoStart.stamp.isBlank()) || (!ke && odoEnd.stamp.isBlank())) { toast(tr("Odometer photos GPS Camera से फिर लें", "Take the odometer photos again with the GPS camera")); return }
+        if (!ks && !ke && (odoEnd.time ?: 0L) <= (odoStart.time ?: 0L)) { toast(tr("आखिर की photo शुरू की photo के बाद की होनी चाहिए", "The end photo must be newer than the start photo")); return }
         if (odoValue(odoStart) <= 0) { odoStart.reading.error = tr("Reading डालें", "Enter the reading"); return }
         if (odoValue(odoEnd) <= 0) { odoEnd.reading.error = tr("Reading डालें", "Enter the reading"); return }
         if (bike == "Company") {
             if (bikeNo.text.toString().trim().length < 4) { bikeNo.error = tr("Bike number डालें", "Enter the bike number"); return }
             if (petrolAmount() <= 0) { petrol.error = tr("Petrol का amount डालें", "Enter the petrol amount"); return }
-            if (photos.isEmpty()) { toast(tr("Company bike: petrol bill की photo लगाएँ", "Company bike: add the petrol bill photo")); return }
+            if (photos.isEmpty() && remoteBills == 0) { toast(tr("Company bike: petrol bill की photo लगाएँ", "Company bike: add the petrol bill photo")); return }
         }
         val calc = fuelCalc() ?: run { odoEnd.reading.error = tr("शुरू से ज़्यादा होनी चाहिए", "Must be more than the start"); return }
         if (calc.first > 1500) { odoEnd.reading.error = tr("${Fmt.km(calc.first)} km सही नहीं लगता", "${Fmt.km(calc.first)} km looks wrong"); return }
@@ -617,6 +722,7 @@ class ClaimFormActivity : AppCompatActivity() {
             .put("bike", bike).put("bikeNo", if (bike == "Company") bikeNo.text.toString().trim().uppercase() else "")
             .put("odoStartTime", odoStart.time ?: 0L).put("odoEndTime", odoEnd.time ?: 0L)
             .put("odoStartStamp", odoStart.stamp).put("odoEndStamp", odoEnd.stamp)
+        if (fixClaim != null) claim.put("fix", true)
         // saved on the phone at once; it goes to the office in the background (no waiting for the upload)
         Outbox.add(this, claim, photos.toList(), if (fuel) odoStart.photo else "", if (fuel) odoEnd.photo else "")
         Journeys.remove(this, claimId)

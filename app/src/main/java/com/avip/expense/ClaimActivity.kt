@@ -164,6 +164,12 @@ class ClaimActivity : AppCompatActivity() {
                     payDialog(listOf(c.id), c.amount) { finish() }
                 }, lp())
             }
+            c.status == Status.REJECTED && mine -> {
+                actions.addView(pillButton(tr("ठीक करके फिर भेजें", "Fix and resend"), Ui.SUN, Ui.TEXT, iconRes = R.drawable.ic_edit) {
+                    startActivity(android.content.Intent(this@ClaimActivity, ClaimFormActivity::class.java).putExtra(ClaimFormActivity.EXTRA_FIX, c.id))
+                    finish()
+                }, lp())
+            }
             c.status == Status.PENDING && mine -> {
                 actions.addView(text(tr("यह claim हटाएँ", "Delete this claim"), 14f, Ui.DANGER, bold = true) {
                     gravity = Gravity.CENTER; setPadding(0, dp(10), 0, dp(10))

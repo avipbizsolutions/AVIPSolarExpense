@@ -199,6 +199,11 @@ object PhotoCache {
     fun has(c: Context, claimId: String, which: String) = file(c, claimId, which).let { it.exists() && it.length() > 0 }
     fun put(c: Context, claimId: String, which: String, src: File) { try { if (src.exists()) src.copyTo(file(c, claimId, which), overwrite = true) } catch (_: Exception) {} }
     fun put(c: Context, claimId: String, which: String, bytes: ByteArray) { try { file(c, claimId, which).writeBytes(bytes) } catch (_: Exception) {} }
+    /** Forgets the cached photos of one claim (its photos were replaced). */
+    fun drop(c: Context, claimId: String) {
+        val prefix = claimId.replace(Regex("[^A-Za-z0-9_-]"), "_") + "_"
+        try { dir(c).listFiles()?.filter { it.name.startsWith(prefix) }?.forEach { it.delete() } } catch (_: Exception) {}
+    }
     fun bitmap(c: Context, claimId: String, which: String): Bitmap? = try {
         BitmapFactory.decodeFile(file(c, claimId, which).absolutePath)
     } catch (_: Exception) { null }
@@ -390,6 +395,7 @@ object Outbox {
             body.put(field, JSONObject().put("mime", "image/jpeg").put("data", data))
         }
         val res = Api.call(c, "submitClaim", body, timeoutMs = 120000)
+        if (o.getJSONObject("claim").optBoolean("fix")) PhotoCache.drop(c, id)
         // keep the sent copies on the phone, so the claim's photos open instantly later
         for ((key, which) in listOf("photo" to "bill", "odoStartPhoto" to "odoStart", "odoEndPhoto" to "odoEnd")) {
             val p = o.optString(key)

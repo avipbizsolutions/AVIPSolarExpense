@@ -420,6 +420,9 @@ function submitClaim(d) {
   const category = clean(c.category, 60);
   if (listColumn(4).indexOf(category) < 0) throw new Error('Choose a category from the list.');
   const fuel = isFuel(category);
+  // a rejected claim corrected by its owner and sent again: the photos already with the office may be kept
+  const fixing = c.fix === true;
+  const hasBill = !!d.photo || (Array.isArray(d.photos) && d.photos.length > 0);
   const companyBike = fuel && clean(c.bike).toLowerCase() === 'company';
   const bikeNo = clean(c.bikeNo, 20).toUpperCase();
   if (companyBike && bikeNo.length < 4) throw new Error('Company bike: enter the bike number.');
@@ -432,14 +435,14 @@ function submitClaim(d) {
     // both odometer photos from the app's GPS camera; the end photo newer than the start photo
     startStamp = stampInfo(c.odoStartStamp);
     endStamp = stampInfo(c.odoEndStamp);
-    if (!startStamp || !endStamp) throw new Error('Fuel claim: odometer photos must be taken with the GPS camera of the latest app. Update the app and take the photos again.');
-    if (endStamp.time.getTime() <= startStamp.time.getTime()) throw new Error('Fuel claim: the end odometer photo must be newer than the start photo.');
+    if (!fixing && (!startStamp || !endStamp)) throw new Error('Fuel claim: odometer photos must be taken with the GPS camera of the latest app. Update the app and take the photos again.');
+    if (startStamp && endStamp && endStamp.time.getTime() <= startStamp.time.getTime()) throw new Error('Fuel claim: the end odometer photo must be newer than the start photo.');
     if (odoEnd <= odoStart) throw new Error('Fuel claim: end odometer reading must be more than the start reading.');
     km = Math.round((odoEnd - odoStart) * 10) / 10;
     if (km > MAX_TRIP_KM) throw new Error('Fuel claim: ' + km + ' km looks wrong. Check the odometer readings.');
     if (companyBike) {
       // company bike: the petrol bill, as a lump sum (cost per km is only shown)
-      if (!d.photo) throw new Error('Company bike: add the photo of the petrol bill.');
+      if (!hasBill && !fixing) throw new Error('Company bike: add the photo of the petrol bill.');
     } else {
       rate = settings().fuelRate;
       amount = money(km * rate);
@@ -457,12 +460,18 @@ function submitClaim(d) {
     const existing = rows(LOG).filter(function (r) { return clean(r['Claim ID']) === id; })[0];
     if (existing) {
       if (!owns(u, existing)) throw new Error('Claim number already used.');
+      if (fixing && clean(existing['Status']) === ST.REJECTED) {
+        return { claim: resendClaim_(u, d, existing, {
+          fuel: fuel, companyBike: companyBike, bikeNo: bikeNo, amount: amount, km: km, rate: rate, odoStart: odoStart, odoEnd: odoEnd,
+          startStamp: startStamp, endStamp: endStamp, paidBy: paidBy, description: description, hasBill: hasBill }), resent: true };
+      }
       if ((d.photo || (Array.isArray(d.photos) && d.photos.length)) && !clean(existing['Bill Photo Link'])) setFields(LOG, existing._row, { 'Bill Photo Link': billLinks_(id, u, d) });
       if (d.odoStartPhoto && !clean(existing['Start Odometer Photo'])) setFields(LOG, existing._row, { 'Start Odometer Photo': saveBill(id, u, d.odoStartPhoto, 'start odometer') });
       if (d.odoEndPhoto && !clean(existing['End Odometer Photo'])) setFields(LOG, existing._row, { 'End Odometer Photo': saveBill(id, u, d.odoEndPhoto, 'end odometer') });
       return { claim: claimOut(rows(LOG).filter(function (r) { return clean(r['Claim ID']) === id; })[0], false), duplicate: true };
     }
     if (fuel && (!d.odoStartPhoto || !d.odoEndPhoto)) throw new Error('Fuel claim: add photos of the start and end odometer.');
+    if (fuel && (!startStamp || !endStamp)) throw new Error('Fuel claim: odometer photos must be taken with the GPS camera of the latest app. Update the app and take the photos again.');
     const link = billLinks_(id, u, d);
     const startLink = fuel ? saveBill(id, u, d.odoStartPhoto, 'start odometer') : '';
     const endLink = fuel ? saveBill(id, u, d.odoEndPhoto, 'end odometer') : '';
@@ -532,6 +541,64 @@ function submitClaim(d) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * A rejected claim, corrected by its owner, goes back for approval in the same row.
+ * Photos are replaced only when new ones come; otherwise the ones already saved stay.
+ */
+function resendClaim_(u, d, ex, v) {
+  const c = d.claim || {};
+  const id = clean(ex['Claim ID']);
+  const trash = function (cell) {
+    String(cell || '').split('\n').filter(String).forEach(function (url) {
+      const fid = fileIdFromUrl(url);
+      if (fid) { try { DriveApp.getFileById(fid).setTrashed(true); } catch (_) {} }
+    });
+  };
+  const set = {};
+  if (v.fuel) {
+    const t = function (x) { return x instanceof Date ? x.getTime() : 0; };
+    if (d.odoStartPhoto && !v.startStamp) throw new Error('Fuel claim: take the start odometer photo again with the GPS camera.');
+    if (d.odoEndPhoto && !v.endStamp) throw new Error('Fuel claim: take the end odometer photo again with the GPS camera.');
+    if (!d.odoStartPhoto && !clean(ex['Start Odometer Photo'])) throw new Error('Fuel claim: add the start odometer photo.');
+    if (!d.odoEndPhoto && !clean(ex['End Odometer Photo'])) throw new Error('Fuel claim: add the end odometer photo.');
+    const st = d.odoStartPhoto ? v.startStamp.time.getTime() : t(ex['Start Photo Time']);
+    const en = d.odoEndPhoto ? v.endStamp.time.getTime() : t(ex['End Photo Time']);
+    if (st && en && en <= st) throw new Error('Fuel claim: the end odometer photo must be newer than the start photo.');
+    if (v.companyBike && !v.hasBill && !clean(ex['Bill Photo Link'])) throw new Error('Company bike: add the photo of the petrol bill.');
+    if (d.odoStartPhoto) { trash(ex['Start Odometer Photo']); set['Start Odometer Photo'] = saveBill(id, u, d.odoStartPhoto, 'start odometer'); set['Start Photo Time'] = v.startStamp.time; }
+    if (d.odoEndPhoto) { trash(ex['End Odometer Photo']); set['End Odometer Photo'] = saveBill(id, u, d.odoEndPhoto, 'end odometer'); set['End Photo Time'] = v.endStamp.time; }
+    set['Odometer Start'] = v.odoStart;
+    set['Odometer End'] = v.odoEnd;
+    set['Rate per KM (₹)'] = v.rate;
+    set['Bike'] = v.companyBike ? 'Company bike – ' + v.bikeNo : 'Own bike';
+  }
+  if (v.hasBill) { trash(ex['Bill Photo Link']); set['Bill Photo Link'] = billLinks_(id, u, d); }
+  // from advance, but nothing left in the advance: the office pays it back instead
+  let payBy = v.paidBy;
+  if (!v.fuel && payBy === 'Advance') {
+    const others = rows(LOG).filter(function (r) { return r._row !== ex._row; });
+    const bal = balanceFor(u.name, u.id, others, rows(ADV));
+    if (money(bal.advanceBalance - bal.advancePending) <= 0) payBy = 'Self';
+  }
+  const why = clean(ex['Remarks']);
+  set['Bill / Voucher No.'] = "'" + clean(c.billNo, 40);
+  set['Description / Purpose'] = v.description;
+  set['Customer / Site'] = clean(c.site, 100);
+  set['District / Location'] = clean(c.district, 80);
+  set['KM Travelled'] = v.km > 0 ? (v.fuel ? v.km : Math.round(v.km)) : '';
+  set['Amount (₹)'] = v.amount;
+  set['Payment Mode'] = clean(c.paymentMode, 30);
+  set['Paid By'] = payBy;
+  set['Status'] = ST.PENDING;
+  set['Approved By'] = '';
+  set['Approved On'] = '';
+  set['Remarks'] = clean('Corrected and sent again' + (why ? ' · earlier rejected: ' + why.replace(/^Corrected and sent again · earlier rejected: /, '') : ''), 300);
+  set['Submitted On'] = now();
+  setFields(LOG, ex._row, set);
+  SpreadsheetApp.flush();
+  return claimOut(rows(LOG).filter(function (r) { return r._row === ex._row; })[0], false);
 }
 
 /**
