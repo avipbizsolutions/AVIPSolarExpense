@@ -59,26 +59,92 @@ class LoginActivity : AppCompatActivity() {
 
     private fun showLogin() {
         val f = frame("Solar Expense", "AVIP Solar")
+        val prefs = getSharedPreferences("settings", MODE_PRIVATE)
         f.addView(text(tr("Login करें", "Log in"), 20f, Ui.TEXT, bold = true))
-        val mobile = field(f, "Mobile Number", "", tr("10 अंकों का number", "10-digit number"), InputType.TYPE_CLASS_PHONE, R.drawable.ic_call, 13, required = true) {}
-        val pin = field(f, tr("4 अंकों का PIN", "4-digit PIN"), "", "••••", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD, R.drawable.ic_sign, 4, required = true) {}
-        f.addView(pillButton(tr("Login करें →", "Login →"), Ui.SUN, Ui.TEXT, heightDp = 56) {
+        // the last mobile number used on this phone is filled in, so only the PIN is typed
+        val mobile = field(f, tr("Mobile Number", "Mobile number"), prefs.getString("last_mobile", "") ?: "", tr("10 अंकों का number", "10-digit number"), InputType.TYPE_CLASS_PHONE, R.drawable.ic_call, 13, required = true) {}
+
+        // Four PIN boxes; an invisible field on top takes the typing. Logs in by itself on the 4th digit.
+        val boxes = mutableListOf<android.widget.TextView>()
+        var showPin = false
+        var working = false
+        val error = text("", 13f, Ui.DANGER) { visibility = android.view.View.GONE }
+        val pin = android.widget.EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            filters = arrayOf<android.text.InputFilter>(android.text.InputFilter.LengthFilter(4))
+            setTextColor(Color.TRANSPARENT)
+            setBackgroundColor(Color.TRANSPARENT)
+            isCursorVisible = false
+            isLongClickable = false
+            contentDescription = tr("4 अंकों का PIN", "4-digit PIN")
+        }
+        fun showBoxes() {
+            val t = pin.text.toString()
+            boxes.forEachIndexed { i, b ->
+                b.text = if (i < t.length) (if (showPin) t[i].toString() else "●") else ""
+                b.background = rounded(0xFFF8F5FC.toInt(), dpf(12f), if (pin.hasFocus() && i == t.length.coerceAtMost(3)) Ui.BRAND else 0xFFC8BDD8.toInt(), dp(2))
+            }
+        }
+        fun login() {
+            if (working) return
             val m = mobile.text.toString().filter { it.isDigit() }.takeLast(10)
             val p = pin.text.toString().trim()
-            if (m.length != 10) { mobile.error = tr("10 अंकों का number डालें", "Enter a 10-digit number"); return@pillButton }
-            if (p.length != 4) { pin.error = tr("4 अंकों का PIN", "4-digit PIN"); return@pillButton }
+            if (m.length != 10) { mobile.error = tr("10 अंकों का number डालें", "Enter a 10-digit number"); mobile.requestFocus(); return }
+            if (p.length != 4) { error.text = tr("4 अंकों का PIN डालें", "Enter your 4-digit PIN"); error.visibility = android.view.View.VISIBLE; pin.requestFocus(); return }
+            working = true
+            error.visibility = android.view.View.GONE
             busy(tr("Login हो रहा है…", "Logging in…"), {
                 Api.call(this, "login", JSONObject().put("mobile", m).put("pin", p).put("token", "")
                     .put("deviceId", deviceId()).put("appVersion", Updater.currentVersionName(this)))
+            }, onError = { e ->
+                // wrong PIN: clear the boxes and say why, ready to type again
+                working = false
+                pin.setText("")
+                error.text = e.message ?: tr("Login नहीं हुआ", "Could not log in")
+                error.visibility = android.view.View.VISIBLE
+                pin.requestFocus()
+                true
             }) { o ->
+                working = false
+                prefs.edit().putString("last_mobile", m).apply()
                 val user = User.from(o.getJSONObject("user"))
                 val must = o.optBoolean("mustSetPin")
                 Session.save(this, o.optString("token"), user, must)
                 if (must) showSetPin() else openHome()
             }
-        }, lp().margins(this, t = 20))
+        }
+        pin.onChange { showBoxes(); if (it.length == 4 && mobile.text.toString().filter { c -> c.isDigit() }.length >= 10) login() }
+        pin.setOnFocusChangeListener { _, _ -> showBoxes() }
+        pin.setOnEditorActionListener { _, _, _ -> login(); true }
+
+        f.addView(horizontal {
+            addView(icon(R.drawable.ic_sign, Ui.BRAND, 16), lp(dp(16), dp(16)).margins(context, r = 6))
+            addView(text(req(tr("4 अंकों का PIN", "4-digit PIN")), 13f, Ui.MUTED, bold = true))
+        }, lp().margins(this, t = 12, b = 6))
+        f.addView(horizontal {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(android.widget.FrameLayout(context).apply {
+                addView(horizontal {
+                    repeat(4) { k ->
+                        val b = text("", 24f, Ui.TEXT, bold = true) { gravity = Gravity.CENTER }
+                        boxes += b
+                        addView(b, lp(0, dp(58), 1f).margins(context, r = if (k < 3) 10 else 0))
+                    }
+                }, android.widget.FrameLayout.LayoutParams(MATCH, dp(58)))
+                addView(pin, android.widget.FrameLayout.LayoutParams(MATCH, dp(58)))
+            }, lp(0, WRAP, 1f))
+            addView(text("👁", 20f, Ui.MUTED) {
+                setPadding(dp(12), dp(10), dp(4), dp(10))
+                contentDescription = tr("PIN दिखाएँ / छिपाएँ", "Show or hide the PIN")
+                setOnClickListener { showPin = !showPin; showBoxes() }
+            })
+        }, lp())
+        f.addView(error, lp().margins(this, t = 8))
+        f.addView(pillButton(tr("Login करें →", "Login →"), Ui.SUN, Ui.TEXT, heightDp = 56) { login() }, lp().margins(this, t = 16))
         f.addView(note(tr("AVIP Solar Sales और Installation वाला ही Mobile Number और PIN। एक PIN, तीनों Apps।", "Same mobile number and PIN as AVIP Solar Sales and Installation. One PIN for all three apps.")), lp().margins(this, t = 18))
         f.addView(text(tr("PIN भूल गए? Office से नया temporary PIN लें।", "Forgot your PIN? Ask the office for a new temporary PIN."), 13f, Ui.MUTED) { gravity = Gravity.CENTER }, lp().margins(this, t = 4))
+        showBoxes()
+        if (mobile.text.toString().filter { it.isDigit() }.length >= 10) pin.requestFocus()
     }
 
     private fun showSetPin() {

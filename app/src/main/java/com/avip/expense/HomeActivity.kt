@@ -88,12 +88,8 @@ class HomeActivity : AppCompatActivity() {
         val root = vertical {
             setBackgroundColor(Ui.BG)
             addView(topBar("AVIP Solar Expense", u.name + " · " + Role.label(u.role), showBack = false, right = listOf(
-                langToggle(),
-                barButton(R.drawable.ic_logout) {
-                    confirm(tr("Logout करें?", "Log out?"), tr("इस phone से logout करें?", "Log out from this phone?")) {
-                        ApprovalAlerts.stop(this@HomeActivity); JourneyReminder.stop(this@HomeActivity); Session.clear(this@HomeActivity); Store.clear(this@HomeActivity); toLogin()
-                    }
-                },
+                // language and logout live in the profile, so the title has room
+                barButton(R.drawable.ic_person) { showProfile() },
             )))
             addView(loading, lp(MATCH, dp(4)))
             journeyBar = vertical { }
@@ -389,6 +385,42 @@ class HomeActivity : AppCompatActivity() {
             }, lp())
             journeyBar.addView(View(this).apply { setBackgroundColor(Ui.LINE) }, lp(MATCH, dp(1)))
         }
+    }
+
+    /** Who is logged in, the language, the app version and Logout. */
+    private fun showProfile() {
+        val u = user ?: return
+        var dialog: androidx.appcompat.app.AlertDialog? = null
+        val hi = "हिंदी"; val en = "English"
+        val box = vertical(22) {
+            addView(horizontal {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(badge(R.drawable.ic_person, Ui.BRAND, 52), lp(dp(52), dp(52)).margins(context, r = 14))
+                addView(vertical {
+                    addView(text(u.name, 19f, Ui.TEXT, bold = true))
+                    addView(text(Role.label(u.role), 13.5f, Ui.MUTED))
+                }, lp(0, WRAP, 1f))
+            })
+            addView(text(tr("भाषा", "Language"), 13f, Ui.MUTED, bold = true), lp().margins(context, t = 20, b = 8))
+            addView(chips(listOf(hi, en), if (Lang.english) en else hi) { pick ->
+                val wantEnglish = pick == en || (pick.isBlank() && !Lang.english)
+                if (pick.isNotBlank() && wantEnglish != Lang.english) {
+                    Lang.set(this@HomeActivity, wantEnglish)
+                    dialog?.dismiss()
+                    recreate()
+                }
+            }, lp())
+            addView(pillButton("Logout", Ui.DANGER_LIGHT, Ui.DANGER, heightDp = 48, iconRes = R.drawable.ic_logout) {
+                dialog?.dismiss()
+                confirm(tr("Logout करें?", "Log out?"), tr("इस phone से logout करें?", "Log out from this phone?")) {
+                    ApprovalAlerts.stop(this@HomeActivity); JourneyReminder.stop(this@HomeActivity); JourneyTracker.stop(this@HomeActivity); Session.clear(this@HomeActivity); Store.clear(this@HomeActivity); toLogin()
+                }
+            }, lp().margins(context, t = 22))
+            addView(text("AVIP Solar Expense · v" + Updater.currentVersionName(this@HomeActivity), 12f, Ui.MUTED) { gravity = Gravity.CENTER }, lp().margins(context, t = 14))
+        }
+        val d = androidx.appcompat.app.AlertDialog.Builder(this).setView(box).create()
+        dialog = d
+        d.show()
     }
 
     private fun deleteDraft(id: String) {
