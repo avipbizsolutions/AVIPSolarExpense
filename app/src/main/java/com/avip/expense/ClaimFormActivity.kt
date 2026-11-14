@@ -150,8 +150,36 @@ class ClaimFormActivity : AppCompatActivity() {
                 bottom = pillButton(tr("Claim भेजें", "Send claim"), Ui.SUN, Ui.TEXT, heightDp = 54) { submit() })
             else -> screen(tr("नया Claim", "New claim"), tr("एक bill = एक claim", "One bill = one claim"), bottom = pillButton(tr("Claim भेजें", "Send claim"), Ui.SUN, Ui.TEXT, heightDp = 54) { submit() })
         }
-        if (starting) body.addView(note(tr("① अभी odometer की photo लें और reading भरें।\n② \"Journey शुरू करें\" दबाएँ।\n③ लौटने पर Home से यही journey खोलें, आखिर की photo लें और claim भेजें।\n📍 Journey के दौरान GPS से दूरी और रास्ता record होगा और office को claim के साथ दिखेगा।",
-            "① Take a photo of your odometer now and enter the reading.\n② Tap \"Start journey\".\n③ When you are back, open this journey from Home, take the end photo and send the claim.\n📍 During the journey the distance and route are recorded by GPS and shown to the office with the claim."), Ui.BRAND_LIGHT, Ui.BRAND_DARK), lp().margins(this, b = 10))
+        if (starting) {
+            // the how-to can be hidden once the rider knows it; one line about GPS always stays
+            val prefs = getSharedPreferences("settings", MODE_PRIVATE)
+            val box = vertical { }
+            fun draw() {
+                box.removeAllViews()
+                val hidden = prefs.getBoolean("hide_journey_help", false)
+                if (hidden) {
+                    box.addView(horizontal {
+                        background = rounded(Ui.BRAND_LIGHT, dpf(12f))
+                        setPadding(dp(14), dp(10), dp(10), dp(10))
+                        addView(text(tr("📍 Journey में GPS से दूरी और रास्ता record होता है।", "📍 GPS records the distance and route during the journey."), 12.5f, Ui.BRAND_DARK), lp(0, WRAP, 1f))
+                        addView(text(tr("तरीका देखें", "Show steps"), 12.5f, Ui.BRAND, bold = true) {
+                            setPadding(dp(10), dp(6), dp(6), dp(6))
+                            setOnClickListener { prefs.edit().putBoolean("hide_journey_help", false).apply(); draw() }
+                        })
+                    }, lp())
+                } else {
+                    box.addView(note(tr("① अभी odometer की photo लें और reading भरें।\n② \"Journey शुरू करें\" दबाएँ।\n③ लौटने पर Home से यही journey खोलें, आखिर की photo लें और claim भेजें।\n📍 Journey के दौरान GPS से दूरी और रास्ता record होगा और office को claim के साथ दिखेगा।",
+                        "① Take a photo of your odometer now and enter the reading.\n② Tap \"Start journey\".\n③ When you are back, open this journey from Home, take the end photo and send the claim.\n📍 During the journey the distance and route are recorded by GPS and shown to the office with the claim."), Ui.BRAND_LIGHT, Ui.BRAND_DARK), lp())
+                    box.addView(text(tr("यह संदेश छिपाएँ  ✕", "Hide this message  ✕"), 13f, Ui.BRAND, bold = true) {
+                        gravity = Gravity.END
+                        setPadding(dp(8), dp(8), dp(4), dp(4))
+                        setOnClickListener { prefs.edit().putBoolean("hide_journey_help", true).apply(); draw() }
+                    }, lp())
+                }
+            }
+            draw()
+            body.addView(box, lp().margins(this, b = 10))
+        }
         else if (fixClaim != null) body.addView(note(tr("Reject का कारण: ", "Reason for rejection: ") + fixClaim!!.remarks.ifBlank { "—" } +
             tr("\nजो गलत था उसे ठीक करें और फिर से भेजें। पुरानी photos लगी रहेंगी।", "\nCorrect what was wrong and send it again. The photos already sent stay attached."), Ui.DANGER_LIGHT, Ui.DANGER), lp().margins(this, b = 10))
         else if (journeyMode) body.addView(note(tr("अब आखिर के odometer की photo लें, reading भरें और Claim भेजें।", "Now take the end odometer photo, enter the reading and send the claim."), Ui.BRAND_LIGHT, Ui.BRAND_DARK), lp().margins(this, b = 10))
