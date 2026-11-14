@@ -386,6 +386,7 @@ fun android.content.Context.claimRow(c: Claim, showMember: Boolean, selected: Bo
         if (c.paidBy == "Advance") add(tr("Advance से", "From advance"))
         if (c.paidBy == "Company") add(tr("Company ने दिया", "Paid by company"))
         if (!c.hasPhoto) add(tr("Bill photo नहीं", "No bill photo"))
+        if (c.odoGap != 0.0) add(tr("⚠ Odometer में ${Fmt.km(Math.abs(c.odoGap))} km का फर्क", "⚠ Odometer gap ${Fmt.km(Math.abs(c.odoGap))} km"))
         if (c.status == Status.REJECTED && c.remarks.isNotBlank()) add(tr("कारण: ", "Reason: ") + c.remarks)
     }
     if (extra.isNotEmpty()) addView(text(extra.joinToString(" · "), 12f, if (c.status == Status.REJECTED) Ui.DANGER else Ui.SUN_TEXT), lp().margins(context, t = 6))

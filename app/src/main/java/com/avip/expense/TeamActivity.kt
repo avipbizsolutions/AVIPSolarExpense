@@ -49,6 +49,8 @@ class TeamActivity : AppCompatActivity() {
     private val PRESET_30 get() = tr("पिछले 30 दिन", "Last 30 days")
     private val PRESET_FY get() = tr("इस साल (FY)", "Current FY")
     private val PRESET_ALL get() = tr("सभी", "All")
+    private val PRESET_MONTH get() = tr("यह महीना", "This month")
+    private val PRESET_LAST get() = tr("पिछला महीना", "Last month")
 
     /** Indian financial year start (1 April) for the FY that today falls in, as yyyy-MM-dd. */
     private fun fyStart(): String {
@@ -60,6 +62,16 @@ class TeamActivity : AppCompatActivity() {
     private fun applyPreset(which: String) {
         preset = which
         rangeTo = Fmt.today()
+        if (which == "month" || which == "last") {
+            val c = java.util.Calendar.getInstance().apply { set(java.util.Calendar.DAY_OF_MONTH, 1) }
+            if (which == "last") {
+                c.add(java.util.Calendar.MONTH, -1)
+                rangeFrom = Fmt.isoDay(c.timeInMillis)
+                c.set(java.util.Calendar.DAY_OF_MONTH, c.getActualMaximum(java.util.Calendar.DAY_OF_MONTH))
+                rangeTo = Fmt.isoDay(c.timeInMillis)
+            } else rangeFrom = Fmt.isoDay(c.timeInMillis)
+            return
+        }
         rangeFrom = when (which) {
             "fy" -> fyStart()
             "all" -> "2000-01-01"
@@ -67,7 +79,7 @@ class TeamActivity : AppCompatActivity() {
         }
     }
 
-    private fun presetLabel() = when (preset) { "30d" -> PRESET_30; "fy" -> PRESET_FY; "all" -> PRESET_ALL; else -> "" }
+    private fun presetLabel() = when (preset) { "30d" -> PRESET_30; "fy" -> PRESET_FY; "all" -> PRESET_ALL; "month" -> PRESET_MONTH; "last" -> PRESET_LAST; else -> "" }
 
     /** [from 00:00, to 23:59] in millis, tolerant of from/to being swapped. */
     private fun rangeBounds(): Pair<Long, Long> {
@@ -173,9 +185,30 @@ class TeamActivity : AppCompatActivity() {
             addView(dateBtn(tr("से", "From"), rangeFrom) { pickDate(rangeFrom.ifBlank { Fmt.today() }) { d -> rangeFrom = d; preset = "custom"; render() } }, lp(0, WRAP, 1f).margins(context, r = 8))
             addView(dateBtn(tr("तक", "To"), rangeTo) { pickDate(rangeTo.ifBlank { Fmt.today() }) { d -> rangeTo = d; preset = "custom"; render() } }, lp(0, WRAP, 1f))
         }, lp().margins(this, b = 8))
-        body.addView(chips(listOf(PRESET_30, PRESET_FY, PRESET_ALL), presetLabel()) { pick ->
-            applyPreset(when (pick) { PRESET_FY -> "fy"; PRESET_ALL -> "all"; else -> "30d" }); render()
+        body.addView(chips(listOf(PRESET_30, PRESET_MONTH, PRESET_LAST, PRESET_FY, PRESET_ALL), presetLabel()) { pick ->
+            applyPreset(when (pick) { PRESET_FY -> "fy"; PRESET_ALL -> "all"; PRESET_MONTH -> "month"; PRESET_LAST -> "last"; else -> "30d" }); render()
         }, lp().margins(this, b = 12))
+    }
+
+    /** With a person selected: their statement for the dates chosen, as a PDF or an Excel (CSV) file. */
+    private fun statementButton() {
+        if (person.isBlank() || person == "—") return
+        val name = person
+        body.addView(pillButton(tr("$name का Statement (PDF / Excel)", "Statement for $name (PDF / Excel)"), Ui.BRAND, iconRes = R.drawable.ic_pdf, heightDp = 46) {
+            val (lo, hi) = rangeBounds()
+            val inDates = { iso: String -> val t = Fmt.parseIso(iso); t != null && t in lo..hi }
+            val claims = claimsCache.filter { it.member == name && inDates(it.date) }.sortedBy { it.date + it.submittedOn }
+            val advs = advCache.filter { it.member == name && inDates(it.date) }.sortedBy { it.date }
+            if (claims.isEmpty() && advs.isEmpty()) { toast(tr("इन तारीखों में कुछ नहीं है", "Nothing in these dates")); return@pillButton }
+            val data = Statement.Data(name, Fmt.isoDay(lo), Fmt.isoDay(hi), claims, advs,
+                peopleCache.firstOrNull { it.name.equals(name, true) }?.advanceBalance)
+            androidx.appcompat.app.AlertDialog.Builder(this).setTitle(tr("Statement किस रूप में?", "Statement as"))
+                .setItems(arrayOf("PDF", tr("Excel (CSV file)", "Excel (CSV file)"))) { _, i ->
+                    busy(tr("Statement बन रहा है…", "Making the statement…"), { if (i == 0) Statement.pdf(this, data) else Statement.csv(this, data) }) { f ->
+                        Statement.deliver(this, f, if (i == 0) "application/pdf" else "text/csv")
+                    }
+                }.show()
+        }, lp().margins(this, t = 4, b = 8))
     }
 
     private fun renderAdvances() {
@@ -210,6 +243,7 @@ class TeamActivity : AppCompatActivity() {
             }, lp().margins(this, b = 8))
         }
 
+        statementButton()
         // ---- advance history (filtered by selected person)
         val shown = inRange.filter { person.isBlank() || it.member == person }
         body.addView(horizontal {
@@ -275,6 +309,7 @@ class TeamActivity : AppCompatActivity() {
             }, lp().margins(this, b = 8))
         }
 
+        statementButton()
         // ---- claim list (filtered by selected person)
         val shown = inRange.filter { person.isBlank() || it.member == person }
         body.addView(horizontal {

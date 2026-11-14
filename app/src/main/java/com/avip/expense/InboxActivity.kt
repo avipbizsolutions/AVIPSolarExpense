@@ -193,7 +193,7 @@ class InboxActivity : AppCompatActivity() {
         }
         if (claims.isEmpty() && (pay || blocked.isEmpty()) && !loadingClaims) body.addView(note(if (pay) tr("कोई approved claim payment के लिए बाकी नहीं है।", "No approved claims waiting for payment.")
             else tr("कोई claim approval के लिए बाकी नहीं है।", "No claims waiting for approval.")))
-        claims.forEach { c ->
+        val addRow = { c: Claim ->
             val row = claimRow(c, showMember = true, selected = c.id in selected) {
                 startActivity(Intent(this, ClaimActivity::class.java).putExtra(ClaimActivity.EXTRA_ID, c.id))
             }
@@ -201,6 +201,26 @@ class InboxActivity : AppCompatActivity() {
             (row as LinearLayout).getChildAt(0).let { line -> (line as LinearLayout).getChildAt(0).setOnClickListener { toggle(c.id) } }
             body.addView(row, lp().margins(this, b = 8))
         }
+        if (pay) {
+            // one person, one payment: everything owed to a person under their name, with one "Pay all"
+            claims.groupBy { it.member.ifBlank { "—" } }.entries.sortedByDescending { e -> e.value.sumOf { it.amount } }.forEach { (name, list) ->
+                val sum = list.sumOf { it.amount }
+                body.addView(card(14) {
+                    background = rounded(Ui.GREEN_LIGHT, dpf(16f), Ui.GREEN, dp(1))
+                    addView(horizontal {
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(vertical {
+                            addView(text(name, 16f, Ui.TEXT, bold = true) { maxLines = 1 })
+                            addView(text("${list.size} claim · " + Fmt.rupees(sum), 13f, Ui.MUTED))
+                        }, lp(0, WRAP, 1f).margins(context, r = 8))
+                        addView(pillButton(tr("सब Pay · ", "Pay all · ") + Fmt.rupees(sum), Ui.GREEN, heightDp = 42) {
+                            payDialog(list.map { it.id }, sum, name) { selected.clear(); loadClaims() }
+                        })
+                    })
+                }, lp().margins(this, t = 6, b = 8))
+                list.forEach { addRow(it) }
+            }
+        } else claims.forEach { addRow(it) }
         // claims this approver may not act on: shown greyed out, tap to view
         if (!pay && blocked.isNotEmpty()) {
             body.addView(text(tr("सिर्फ Atul / Rahul approve करेंगे", "Only Atul or Rahul can approve"), 15f, Ui.MUTED, bold = true), lp().margins(this, t = 12, b = 8))

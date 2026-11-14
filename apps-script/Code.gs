@@ -78,6 +78,7 @@ function doPost(e) {
   try {
     const d = JSON.parse(e.postData.contents);
     if (d.key !== SHARED_KEY) return out({ ok: false, error: 'Not allowed' });
+    BIKE_RUNS = null;
     const h = HANDLERS[d.kind];
     if (!h) return out({ ok: false, error: 'unknown kind' });
     const result = h(d) || {};
@@ -311,8 +312,43 @@ function claimOut(c, withMember) {
     bike: /^company/i.test(clean(c['Bike'])) ? 'Company' : (isFuel(c['Category']) ? 'Own' : ''),
     bikeNo: clean(c['Bike']).replace(/^company bike\s*[–-]\s*/i, '').replace(/^own bike$/i, ''),
   };
+  if (o.bike === 'Company') {
+    const g = odoGap_(c);
+    if (g) { o.odoGap = g.gap; o.odoPrevEnd = g.prevEnd; o.odoPrevBy = g.prevBy; o.odoPrevDate = g.prevDate; }
+  }
   if (withMember) { o.member = clean(c['Team Member']); o.memberId = clean(c['Employee ID']); o.team = clean(c['Team']); }
   return o;
+}
+
+/**
+ * Company bike only: the start reading of a journey should be the end reading of the same
+ * bike's journey before it. Returns the difference (km not claimed in between, or an overlap
+ * when negative), or null when it matches or there is no earlier journey.
+ */
+let BIKE_RUNS = null;
+function bikeKey_(c) { return clean(c['Bike']).replace(/^company bike\s*[–-]\s*/i, '').replace(/[^A-Za-z0-9]/g, '').toUpperCase(); }
+function runTime_(c) {
+  const t = c['Start Photo Time'] instanceof Date ? c['Start Photo Time'] : (c['Date'] instanceof Date ? c['Date'] : null);
+  return t ? t.getTime() : 0;
+}
+function odoGap_(c) {
+  if (!BIKE_RUNS) {
+    BIKE_RUNS = {};
+    rows(LOG).forEach(function (r) {
+      if (!/^company/i.test(clean(r['Bike'])) || clean(r['Status']) === ST.REJECTED) return;
+      const k = bikeKey_(r), t = runTime_(r);
+      if (!k || !t || !(num(r['Odometer End']) > 0)) return;
+      (BIKE_RUNS[k] = BIKE_RUNS[k] || []).push({ id: clean(r['Claim ID']), t: t, end: num(r['Odometer End']), by: clean(r['Team Member']), date: isoDay(r['Date']) });
+    });
+  }
+  const t = runTime_(c), start = num(c['Odometer Start']), id = clean(c['Claim ID']);
+  if (!t || !(start > 0)) return null;
+  let prev = null;
+  (BIKE_RUNS[bikeKey_(c)] || []).forEach(function (r) { if (r.id !== id && r.t < t && (!prev || r.t > prev.t)) prev = r; });
+  if (!prev) return null;
+  const gap = Math.round((start - prev.end) * 10) / 10;
+  if (Math.abs(gap) < 1) return null;
+  return { gap: gap, prevEnd: prev.end, prevBy: prev.by, prevDate: prev.date };
 }
 
 function sortNewest(list) {

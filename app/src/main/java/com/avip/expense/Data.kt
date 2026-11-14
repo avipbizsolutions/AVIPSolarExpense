@@ -56,6 +56,8 @@ data class Claim(
     val odoStartTime: String = "", val odoEndTime: String = "",
     val bike: String = "", val bikeNo: String = "",
     val billCount: Int = 0,
+    /** Company bike: start reading minus the bike's previous end reading (0 = continues, or nothing to compare). */
+    val odoGap: Double = 0.0, val odoPrevEnd: Double = 0.0, val odoPrevBy: String = "", val odoPrevDate: String = "",
 ) {
     val isFuel get() = Settings.isFuel(category)
 
@@ -75,6 +77,7 @@ data class Claim(
             o.optString("odoStartTime"), o.optString("odoEndTime"),
             o.optString("bike"), o.optString("bikeNo"),
             o.optInt("billCount", if (o.optBoolean("hasPhoto")) 1 else 0),
+            o.optDouble("odoGap", 0.0), o.optDouble("odoPrevEnd", 0.0), o.optString("odoPrevBy"), o.optString("odoPrevDate"),
         )
 
         fun list(a: JSONArray?): List<Claim> = (0 until (a?.length() ?: 0)).map { from(a!!.getJSONObject(it)) }

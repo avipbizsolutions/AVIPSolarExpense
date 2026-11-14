@@ -82,6 +82,13 @@ class ClaimActivity : AppCompatActivity() {
                 val rate = if (c.rate > 0) c.rate else Settings.fuelRate(this@ClaimActivity)
                 if (c.odoStartTime.isNotBlank() || c.odoEndTime.isNotBlank())
                     addView(kv(tr("Photo का समय", "Photo times"), c.odoStartTime.ifBlank { "?" } + " → " + c.odoEndTime.ifBlank { "?" }))
+                if (c.odoGap != 0.0) addView(note(
+                    (if (c.odoGap > 0) tr("⚠ Odometer मेल नहीं खाता: इस bike की पिछली journey ${Fmt.km(c.odoPrevEnd)} पर खत्म हुई थी, यह ${Fmt.km(c.odoStart)} से शुरू है — बीच के ${Fmt.km(c.odoGap)} km का claim नहीं है।",
+                        "⚠ Odometer does not continue: this bike's last journey ended at ${Fmt.km(c.odoPrevEnd)}, this one starts at ${Fmt.km(c.odoStart)} — ${Fmt.km(c.odoGap)} km in between are not claimed.")
+                    else tr("⚠ Odometer मेल नहीं खाता: इस bike की पिछली journey ${Fmt.km(c.odoPrevEnd)} पर खत्म हुई थी, पर यह ${Fmt.km(c.odoStart)} से शुरू है (${Fmt.km(-c.odoGap)} km कम)।",
+                        "⚠ Odometer does not continue: this bike's last journey ended at ${Fmt.km(c.odoPrevEnd)}, but this one starts at ${Fmt.km(c.odoStart)} (${Fmt.km(-c.odoGap)} km lower).")) +
+                    (if (c.odoPrevBy.isNotBlank()) tr("\nपिछली journey: ", "\nLast journey: ") + c.odoPrevBy + (if (c.odoPrevDate.isNotBlank()) " · " + Fmt.date(c.odoPrevDate) else "") else ""),
+                    Ui.SUN_LIGHT, Ui.SUN_TEXT), lp().margins(context, t = 6))
                 if (c.odoDatesDiffer) addView(text(tr("⚠ Photos अलग-अलग तारीख की (या तारीख नहीं) — Management approval", "⚠ Photos on different dates (or no date): management approval"), 13f, Ui.DANGER, bold = true), lp().margins(context, t = 4))
                 if (c.bike == "Company") addView(kv(tr("हिसाब", "Worked out"), tr("Petrol bill ", "Petrol bill ") + Fmt.rupees(c.amount) + " · " + Fmt.km(c.km) + " km · ₹" +
                     String.format(java.util.Locale.US, "%.2f", if (c.km > 0) c.amount / c.km else 0.0) + "/km", bold = true))
@@ -261,13 +268,15 @@ fun AppCompatActivity.skippedOr(r: JSONObject, ok: () -> Unit) {
 }
 
 /** Accounts: mark approved claims as paid (Cash / UPI / Bank Transfer, reference if any). */
-fun AppCompatActivity.payDialog(ids: List<String>, total: Double, onDone: () -> Unit) {
+fun AppCompatActivity.payDialog(ids: List<String>, total: Double, who: String = "", onDone: () -> Unit) {
     var via = ""
     var date = Fmt.today()
     val ref = input(tr("UPI / Bank reference (अगर हो)", "UPI / bank reference (if any)"))
     val dateBtn = text(tr("तारीख: ", "Date: ") + Fmt.date(date), 15f, Ui.BLUE, bold = true) { setPadding(0, dp(12), 0, dp(4)) }
     val box = vertical(18) {
+        if (who.isNotBlank()) addView(text(who, 18f, Ui.TEXT, bold = true), lp().margins(context, b = 2))
         addView(text(tr("${ids.size} claim · कुल ${Fmt.rupees(total)}", "${ids.size} claims · total ${Fmt.rupees(total)}"), 16f, Ui.TEXT, bold = true))
+        if (who.isNotBlank() && ids.size > 1) addView(text(tr("एक payment, एक reference — सारे claims Paid mark होंगे।", "One payment, one reference: all these claims are marked paid."), 12.5f, Ui.MUTED), lp().margins(context, t = 2))
         addView(text(req(tr("Payment कैसे किया", "How was it paid")), 13f, Ui.MUTED, bold = true), lp().margins(context, t = 12, b = 6))
         addView(chips(Store.PAY_VIA, "") { via = it }, lp())
         addView(ref, lp().margins(context, t = 12))
@@ -281,7 +290,7 @@ fun AppCompatActivity.payDialog(ids: List<String>, total: Double, onDone: () -> 
             if (via.isBlank()) { toast(tr("Cash / UPI / Bank Transfer चुनें", "Choose Cash, UPI or Bank Transfer")); return@setOnClickListener }
             d.dismiss()
             sendOrQueue(tr("Save हो रहा है…", "Saving…"), "markPaid", JSONObject().put("claimIds", JSONArray(ids)).put("via", via)
-                .put("ref", ref.text.toString().trim()).put("date", date), "Paid · ${ids.size} claim · ${Fmt.rupees(total)}", ids) { r ->
+                .put("ref", ref.text.toString().trim()).put("date", date), "Paid · " + (if (who.isNotBlank()) "$who · " else "") + "${ids.size} claim · ${Fmt.rupees(total)}", ids) { r ->
                 skippedOr(r) { if (!r.optBoolean("queued")) toast("${r.optInt("done")} claim paid · ${Fmt.rupees(r.optDouble("total"))}"); onDone() }
             }
         }
