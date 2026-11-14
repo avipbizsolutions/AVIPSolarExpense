@@ -82,6 +82,8 @@ class ClaimFormActivity : AppCompatActivity() {
     private var journey: JSONObject? = null
     /** Opened from "Start journey" (or one of its drafts): odometer photos only from the GPS camera. */
     private var journeyMode = false
+    /** Step 1 of a bike journey: only the start odometer is asked; everything else comes at the end. */
+    private var starting = false
     private lateinit var draftBtn: View
     private lateinit var dateNote: android.widget.TextView
 
@@ -111,6 +113,7 @@ class ClaimFormActivity : AppCompatActivity() {
         Lang.load(this)
         val jx = intent.getStringExtra(EXTRA_JOURNEY)
         journeyMode = jx != null
+        starting = jx == "new"
         journey = if (jx != null && jx != "new") Journeys.get(this, jx) else null
         claimId = journey?.optString("id")?.takeIf { it.isNotBlank() } ?: newClaimId()
         val boot = Store.load(this, "boot")
@@ -119,11 +122,24 @@ class ClaimFormActivity : AppCompatActivity() {
         val bal = Balance.from(Store.load(this, "mine")?.optJSONObject("balance") ?: boot?.optJSONObject("balance"))
         fuelRate = Settings.fuelRate(this)
 
-        body = screen(tr("नया Claim", "New claim"), tr("एक bill = एक claim", "One bill = one claim"), bottom = pillButton(tr("Claim भेजें", "Send claim"), Ui.SUN, Ui.TEXT, heightDp = 54) { submit() })
+        body = when {
+            starting -> screen(tr("Journey शुरू करें", "Start journey"), tr("Step 1 / 2 · शुरू के odometer की photo", "Step 1 of 2 · start odometer photo"),
+                bottom = pillButton(tr("Journey शुरू करें", "Start journey"), Ui.BRAND, heightDp = 54, iconRes = R.drawable.ic_location) { saveDraft() })
+            journeyMode -> screen(tr("Journey पूरी करें", "Finish journey"), tr("Step 2 / 2 · आखिर की photo → Claim भेजें", "Step 2 of 2 · end odometer photo → send claim"),
+                bottom = pillButton(tr("Claim भेजें", "Send claim"), Ui.SUN, Ui.TEXT, heightDp = 54) { submit() })
+            else -> screen(tr("नया Claim", "New claim"), tr("एक bill = एक claim", "One bill = one claim"), bottom = pillButton(tr("Claim भेजें", "Send claim"), Ui.SUN, Ui.TEXT, heightDp = 54) { submit() })
+        }
+        if (starting) body.addView(note(tr("① अभी odometer की photo लें और reading भरें।\n② \"Journey शुरू करें\" दबाएँ।\n③ लौटने पर Home से यही journey खोलें, आखिर की photo लें और claim भेजें।",
+            "① Take a photo of your odometer now and enter the reading.\n② Tap \"Start journey\".\n③ When you are back, open this journey from Home, take the end photo and send the claim."), Ui.BRAND_LIGHT, Ui.BRAND_DARK), lp().margins(this, b = 10))
+        else if (journeyMode) body.addView(note(tr("अब आखिर के odometer की photo लें, reading भरें और Claim भेजें।", "Now take the end odometer photo, enter the reading and send the claim."), Ui.BRAND_LIGHT, Ui.BRAND_DARK), lp().margins(this, b = 10))
+        val topViews = mutableListOf<View>()
+        var petrolBox: View? = null
+        var endTile: View? = null
+        var odoHint: View? = null
 
         body.addView(text(req(tr("ज़रूरी", "Required")), 12.5f, Ui.MUTED) { gravity = android.view.Gravity.END }, lp().margins(this, b = 6))
         body.addView(section(tr("खर्च", "Expense")) {
-            addView(label(req(tr("तारीख", "Date"))))
+            addView(label(req(tr("तारीख", "Date"))).also { topViews.add(it) })
             dateBtn = selector(Fmt.date(date), R.drawable.ic_history) {
                 pickDate(date) { d ->
                     if ((Fmt.parseIso(d) ?: 0L) > System.currentTimeMillis()) { toast(tr("आगे की तारीख नहीं चलेगी", "A future date is not allowed")); return@pickDate }
@@ -131,7 +147,7 @@ class ClaimFormActivity : AppCompatActivity() {
                 }
             }
             addView(dateBtn, lp())
-            addView(label(req(tr("किस चीज़ का खर्च (Category)", "Category"))))
+            addView(label(req(tr("किस चीज़ का खर्च (Category)", "Category"))).also { topViews.add(it) })
             catBtn = selector(tr("Category चुनें", "Choose category"), R.drawable.ic_grid) {
                 AlertDialog.Builder(this@ClaimFormActivity).setTitle("Category")
                     .setItems(categories.toTypedArray()) { _, i ->
@@ -171,20 +187,23 @@ class ClaimFormActivity : AppCompatActivity() {
                         bikeNo = field(this, tr("Bike number", "Bike number"), "", "BR01 AB 4521", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS, 0, 20, required = true) {}
                     }, lp(0, WRAP, 1.25f).margins(context, r = 8))
                     addView(vertical {
+                        petrolBox = this
                         petrol = field(this, tr("Petrol (₹)", "Petrol (₹)"), "", "300", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL, 0, 9, required = true) { updateFuel() }
                         petrol.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 18f)
                         petrol.typeface = android.graphics.Typeface.DEFAULT_BOLD
                     }, lp(0, WRAP, 1f))
                 })
-                addView(text(tr("नीचे Bill में petrol bill की photo ज़रूरी।", "Petrol bill photo required in Bill below."), 12f, Ui.SUN_TEXT, bold = true), lp().margins(context, t = 4))
+                if (!starting) addView(text(tr("नीचे Bill में petrol bill की photo ज़रूरी।", "Petrol bill photo required in Bill below."), 12f, Ui.SUN_TEXT, bold = true), lp().margins(context, t = 4))
             }.apply { visibility = View.GONE }
             addView(companyBox, lp())
             // start and end odometer side by side
             addView(horizontal {
                 addView(odoTile(odoStart, tr("शुरू", "Start")), lp(0, WRAP, 1f).margins(context, r = 8))
-                addView(odoTile(odoEnd, tr("आखिर", "End")), lp(0, WRAP, 1f))
+                endTile = odoTile(odoEnd, tr("आखिर", "End"))
+                addView(endTile!!, lp(0, WRAP, 1f))
             }, lp().margins(context, t = 12))
-            addView(text(tr("📷 सिर्फ GPS Camera · आखिर की photo शुरू के बाद की", "📷 GPS camera only · end photo after the start photo"), 11.5f, Ui.MUTED) { gravity = Gravity.CENTER }, lp().margins(context, t = 6))
+            odoHint = text(tr("📷 सिर्फ GPS Camera · आखिर की photo शुरू के बाद की", "📷 GPS camera only · end photo after the start photo"), 11.5f, Ui.MUTED) { gravity = Gravity.CENTER }
+            addView(odoHint!!, lp().margins(context, t = 6))
             dateNote = text("", 12.5f, Ui.SUN_TEXT, bold = true) { visibility = View.GONE }
             addView(dateNote, lp().margins(context, t = 8))
             fuelSum = text("", 16.5f, Ui.BRAND_DARK, bold = true) {
@@ -199,7 +218,7 @@ class ClaimFormActivity : AppCompatActivity() {
         body.addView(fuelBox)
         showBike()
 
-        body.addView(section(tr("पैसे किसने दिए", "Who paid") + " *") {
+        val whoPaid = section(tr("पैसे किसने दिए", "Who paid") + " *") {
             addView(chips(listOf(tr("Advance से", "From advance"), tr("अपने पैसे से", "Own money")), tr("Advance से", "From advance")) { pick ->
                 paidBy = when (pick) { tr("Advance से", "From advance") -> "Advance"; else -> "Self" }
                 checkAdvance(bal)
@@ -210,7 +229,8 @@ class ClaimFormActivity : AppCompatActivity() {
             addView(label(req(tr("Payment कैसे किया", "How was it paid"))))
             addView(chips(modes, "Cash") { paymentMode = it }, lp())
             checkAdvance(bal)
-        })
+        }
+        body.addView(whoPaid)
 
         billSection = section("Bill", tr("Bill की साफ photo लगाएँ।", "Add a clear photo of the bill.")) {
             notice = marquee(noticeText())
@@ -227,10 +247,11 @@ class ClaimFormActivity : AppCompatActivity() {
         }
         body.addView(billSection)
 
-        body.addView(section(tr("Site (अगर site का खर्च है)", "Site (for site expenses)")) {
+        val siteSection = section(tr("Site (अगर site का खर्च है)", "Site (for site expenses)")) {
             site = field(this, tr("Customer / Site का नाम", "Customer / site name"), "", tr("जैसे: Ramesh Kumar", "e.g. Ramesh Kumar"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS, R.drawable.ic_person, 100) {}
             district = field(this, tr("District / जगह", "District / location"), "", tr("जैसे: Danapur, Patna", "e.g. Danapur, Patna"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS, R.drawable.ic_location, 80) {}
-        })
+        }
+        body.addView(siteSection)
         showPhoto()
         updateBill()
 
@@ -239,6 +260,15 @@ class ClaimFormActivity : AppCompatActivity() {
             val fuelCat = categories.firstOrNull { Settings.isFuel(it) } ?: "Fuel / Petrol"
             category = fuelCat; catBtn.text = fuelCat; catBtn.setTextColor(Ui.TEXT)
             kmBox.visibility = View.GONE; fuelBox.visibility = View.VISIBLE; amountBox.visibility = View.GONE
+            // a journey is always Fuel / Petrol on its own date: no need to show those rows
+            topViews.forEach { it.visibility = View.GONE }
+            dateBtn.visibility = View.GONE; catBtn.visibility = View.GONE
+        }
+        if (starting) {
+            // step 1 asks only for the start odometer (and the bike); the rest comes when the rider is back
+            endTile?.visibility = View.GONE; odoHint?.visibility = View.GONE; petrolBox?.visibility = View.GONE
+            fuelSum.visibility = View.GONE; draftBtn.visibility = View.GONE
+            whoPaid.visibility = View.GONE; siteSection.visibility = View.GONE
         }
         journey?.let { j ->
             date = j.optString("date").ifBlank { date }; dateBtn.text = Fmt.date(date)
@@ -273,7 +303,7 @@ class ClaimFormActivity : AppCompatActivity() {
     private fun updateBill() {
         if (!::billSection.isInitialized) return
         updateNotice()
-        val hide = Settings.isFuel(category) && bike == "Own"
+        val hide = starting || (Settings.isFuel(category) && bike == "Own")
         billSection.visibility = if (hide) View.GONE else View.VISIBLE
     }
 
@@ -531,7 +561,7 @@ class ClaimFormActivity : AppCompatActivity() {
 
     private fun updateFuel() {
         if (!::fuelSum.isInitialized) return
-        if (::draftBtn.isInitialized) draftBtn.visibility = if (odoEnd.photo.isBlank()) View.VISIBLE else View.GONE
+        if (::draftBtn.isInitialized) draftBtn.visibility = if (!starting && odoEnd.photo.isBlank()) View.VISIBLE else View.GONE
         val same = sameDay(odoStart.time, odoEnd.time)
         val bothPhotos = odoStart.photo.isNotBlank() && odoEnd.photo.isNotBlank()
         dateNote.visibility = if (bothPhotos && same != true) View.VISIBLE else View.GONE
