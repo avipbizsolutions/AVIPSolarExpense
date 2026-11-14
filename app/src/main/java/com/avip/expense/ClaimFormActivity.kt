@@ -208,10 +208,15 @@ class ClaimFormActivity : AppCompatActivity() {
             addView(fuelHint, lp().margins(context, t = 6))
             companyBox = vertical {
                 addView(horizontal {
+                    // both columns start at the top, so the labels and the boxes line up
+                    gravity = Gravity.TOP
                     addView(vertical {
                         // company bikes come from the office sheet (Lists → Company Bikes): pick one, no typing
                         bikeNo = field(this, tr("कौन सी bike", "Which bike"), "", tr("Bike चुनें ▾", "Choose bike ▾"), InputType.TYPE_NULL, 0, 40, required = true) {}
                         bikeNo.isFocusable = false; bikeNo.isCursorVisible = false; bikeNo.isLongClickable = false
+                        // same text size as the petrol amount beside it: the two boxes get the same height
+                        bikeNo.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 18f)
+                        bikeNo.isSingleLine = true
                         bikeNo.setOnClickListener {
                             AlertDialog.Builder(this@ClaimFormActivity).setTitle(tr("Company bike चुनें", "Choose the company bike"))
                                 .setItems(bikes.toTypedArray()) { _, i -> bikeNo.setText(bikes[i]); bikeNo.error = null }.show()
@@ -231,6 +236,8 @@ class ClaimFormActivity : AppCompatActivity() {
                 "Note: claim fuel / petrol through \"Start journey\". A fuel claim made here can be approved only by Atul or Rahul."), Ui.SUN_LIGHT, Ui.SUN_TEXT), lp().margins(context, t = 10))
             // start and end odometer side by side
             addView(horizontal {
+                // top-aligned: a longer message under one reading must not push the other photo down
+                gravity = Gravity.TOP
                 addView(odoTile(odoStart, tr("शुरू", "Start")), lp(0, WRAP, 1f).margins(context, r = 8))
                 endTile = odoTile(odoEnd, tr("आखिर", "End"))
                 addView(endTile!!, lp(0, WRAP, 1f))
