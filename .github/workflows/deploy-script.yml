@@ -1,0 +1,89 @@
+name: Deploy office script
+
+# Sends apps-script/Code.gs (and AuthClient.gs) to the Apps Script project of the
+# expense sheet and updates the existing web-app deployment, so the URL in the app stays the same.
+# Needs three repository secrets (Settings → Secrets and variables → Actions):
+#   CLASPRC_JSON           the whole content of the .clasprc.json file made by "clasp login"
+#   EXPENSE_SCRIPT_ID      Apps Script editor → Project Settings → Script ID
+#   EXPENSE_DEPLOYMENT_ID  Apps Script editor → Deploy → Manage deployments → Deployment ID
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps-script/**"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "check = only list what is in the live project; deploy = send the code and update the deployment"
+        type: choice
+        options: [check, deploy]
+        default: check
+
+concurrency:
+  group: deploy-script
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+      SCRIPT_ID: ${{ secrets.EXPENSE_SCRIPT_ID }}
+      DEPLOYMENT_ID: ${{ secrets.EXPENSE_DEPLOYMENT_ID }}
+      MODE: ${{ github.event_name == 'push' && 'deploy' || inputs.mode }}
+    steps:
+      - name: Secrets present?
+        id: ready
+        run: |
+          if [ -z "$CLASPRC_JSON" ] || [ -z "$SCRIPT_ID" ] || [ -z "$DEPLOYMENT_ID" ]; then
+            echo "::warning title=Office script not deployed::Add the secrets CLASPRC_JSON, EXPENSE_SCRIPT_ID and EXPENSE_DEPLOYMENT_ID to turn this on."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.ready.outputs.ok == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.ready.outputs.ok == 'true'
+        with:
+          node-version: "22"
+
+      - name: Install clasp and log in
+        if: steps.ready.outputs.ok == 'true'
+        run: |
+          npm install -g @google/clasp
+          printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
+          chmod 600 "$HOME/.clasprc.json"
+
+      # The live project is the base: its manifest (web-app settings, permissions) and any
+      # other file in it are kept. Only Code and AuthClient are replaced by the repository's.
+      - name: Fetch the live project
+        if: steps.ready.outputs.ok == 'true'
+        run: |
+          mkdir live && cd live
+          printf '{"scriptId":"%s","rootDir":"."}' "$SCRIPT_ID" > .clasp.json
+          clasp pull
+          echo "Files in the live project:"
+          ls -la
+          test -f appsscript.json || { echo "::error::The live project has no manifest (appsscript.json); nothing was changed."; exit 1; }
+
+      - name: Send the code and update the deployment
+        if: steps.ready.outputs.ok == 'true' && env.MODE == 'deploy'
+        run: |
+          cd live
+          rm -f Code.js Code.gs AuthClient.js AuthClient.gs
+          cp ../apps-script/Code.gs ../apps-script/AuthClient.gs .
+          node -e "new Function(require('fs').readFileSync('Code.gs','utf8'))"
+          clasp push -f
+          clasp create-deployment -i "$DEPLOYMENT_ID" -d "GitHub ${GITHUB_SHA::7}"
+          echo "Deployed apps-script/Code.gs at ${GITHUB_SHA::7}"
+
+      - name: Remove the login file
+        if: always()
+        run: rm -f "$HOME/.clasprc.json"
