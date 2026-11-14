@@ -33,6 +33,8 @@ class ClaimActivity : AppCompatActivity() {
     private lateinit var claim: Claim
     private lateinit var body: LinearLayout
     private var photoView: LinearLayout? = null
+    /** A team member sees a short summary of their own claim; "Show full details" opens everything. */
+    private var showFull = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,6 +48,8 @@ class ClaimActivity : AppCompatActivity() {
         val c = claim
         val mine = c.memberId.isBlank() && c.member.isBlank() || c.memberId == u.id
         val actions = vertical { }
+        // approvers, accounts and founders always get every detail
+        val full = u.seesTeam || showFull
         body = screen(c.category, Fmt.date(c.date) + " · " + c.id, bottom = actions)
 
         body.addView(card(18) {
@@ -68,14 +72,21 @@ class ClaimActivity : AppCompatActivity() {
 
         body.addView(section(tr("जानकारी", "Details")) {
             addView(kv(tr("तारीख", "Date"), Fmt.date(c.date)))
-            addView(kv(tr("किस चीज़ का खर्च", "Category"), c.category))
+            if (full) addView(kv(tr("किस चीज़ का खर्च", "Category"), c.category))
             addView(kv(tr("पैसे किसने दिए", "Who paid"), when (c.paidBy) { "Advance" -> tr("Advance से", "From advance"); "Company" -> tr("Company ने दिया", "Paid by company"); else -> tr("अपने पैसे से", "Own money") }))
-            if (c.paymentMode.isNotBlank()) addView(kv(tr("Payment कैसे", "Paid via"), c.paymentMode))
-            if (c.billNo.isNotBlank()) addView(kv(tr("Bill नंबर", "Bill No."), c.billNo))
+            if (full && c.paymentMode.isNotBlank()) addView(kv(tr("Payment कैसे", "Paid via"), c.paymentMode))
+            if (full && c.billNo.isNotBlank()) addView(kv(tr("Bill नंबर", "Bill No."), c.billNo))
             if (c.site.isNotBlank()) addView(kv("Customer / Site", c.site))
-            if (c.district.isNotBlank()) addView(kv(tr("जगह", "Location"), c.district))
-            if (c.km > 0) addView(kv("KM", Fmt.km(c.km)))
-            if (c.isFuel && c.odoEnd > 0) {
+            if (full && c.district.isNotBlank()) addView(kv(tr("जगह", "Location"), c.district))
+            if (c.km > 0 && (full || !c.isFuel)) addView(kv("KM", Fmt.km(c.km)))
+            if (!full && c.isFuel && c.odoEnd > 0) {
+                // short view: the readings and how the amount was worked out
+                addView(kv(tr("Odometer", "Odometer"), Fmt.km(c.odoStart) + " → " + Fmt.km(c.odoEnd)))
+                val r0 = if (c.rate > 0) c.rate else Settings.fuelRate(this@ClaimActivity)
+                addView(kv(tr("हिसाब", "Worked out"), if (c.bike == "Company") tr("Petrol bill ", "Petrol bill ") + Fmt.rupees(c.amount) + " · " + Fmt.km(c.km) + " km"
+                    else "${Fmt.km(c.km)} km × ₹${Fmt.km(r0)} = ${Fmt.rupees(c.amount)}", bold = true))
+            }
+            if (full && c.isFuel && c.odoEnd > 0) {
                 addView(kv(tr("Odometer", "Odometer"), Fmt.km(c.odoStart) + " → " + Fmt.km(c.odoEnd)))
                 if (c.bike == "Company") addView(kv("Bike", tr("Company की bike", "Company bike") + if (c.bikeNo.isNotBlank()) " · " + c.bikeNo else ""))
                 else addView(kv("Bike", tr("अपनी bike", "Own bike")))
@@ -105,21 +116,21 @@ class ClaimActivity : AppCompatActivity() {
                     String.format(java.util.Locale.US, "%.2f", if (c.km > 0) c.amount / c.km else 0.0) + "/km", bold = true))
                 else addView(kv(tr("हिसाब", "Worked out"), "${Fmt.km(c.km)} km × ₹${Fmt.km(rate)} = ${Fmt.rupees(c.amount)}", bold = true))
             }
-            if (c.submittedOn.isNotBlank()) addView(kv(tr("भेजा", "Sent"), c.submittedOn))
+            if (full && c.submittedOn.isNotBlank()) addView(kv(tr("भेजा", "Sent"), c.submittedOn))
         })
 
         if (c.approvedBy.isNotBlank() || c.status == Status.REIMBURSED) body.addView(section(tr("Approval और Payment", "Approval and payment")) {
             if (c.approvedBy.isNotBlank()) addView(kv(if (c.status == Status.REJECTED) tr("Reject किया", "Rejected by") else tr("Approve किया", "Approved by"), c.approvedBy))
-            if (c.approvedOn.isNotBlank()) addView(kv(tr("कब", "When"), c.approvedOn))
+            if (full && c.approvedOn.isNotBlank()) addView(kv(tr("कब", "When"), c.approvedOn))
             if (c.remarks.isNotBlank() && c.status != Status.REJECTED) addView(kv(tr("टिप्पणी", "Note"), c.remarks))
             if (c.status == Status.REIMBURSED) {
                 addView(kv(tr("Payment की तारीख", "Paid on"), Fmt.date(c.reimbursedOn), bold = true))
-                addView(kv(tr("Payment कैसे", "Paid via"), c.reimbursedVia))
-                if (c.paymentRef.isNotBlank()) addView(kv(tr("Reference नंबर", "Reference"), c.paymentRef))
+                if (full) addView(kv(tr("Payment कैसे", "Paid via"), c.reimbursedVia))
+                if (full && c.paymentRef.isNotBlank()) addView(kv(tr("Reference नंबर", "Reference"), c.paymentRef))
             }
         })
 
-        if (c.isFuel && (c.hasOdoStart || c.hasOdoEnd)) body.addView(section(tr("Odometer photos", "Odometer photos")) {
+        if (full && c.isFuel && (c.hasOdoStart || c.hasOdoEnd)) body.addView(section(tr("Odometer photos", "Odometer photos")) {
             for ((which, label, local, has) in listOf(
                 Quad("odoStart", tr("शुरू का Odometer", "Start odometer"), c.localOdoStart, c.hasOdoStart),
                 Quad("odoEnd", tr("आखिर का Odometer", "End odometer"), c.localOdoEnd, c.hasOdoEnd),
@@ -137,7 +148,12 @@ class ClaimActivity : AppCompatActivity() {
             if (c.odoStart > 0 && c.odoEnd > 0) addView(text(tr("कुल दूरी: ", "Distance: ") + Fmt.km(c.odoEnd - c.odoStart) + " km", 14.5f, Ui.BRAND_DARK, bold = true), lp().margins(context, t = 10))
         })
 
-        body.addView(section(tr("Bill photos", "Bill photos")) {
+        if (!full) body.addView(text(tr("पूरी जानकारी और photos देखें  ›", "Show full details and photos  ›"), 14.5f, Ui.BRAND, bold = true) {
+            gravity = Gravity.CENTER
+            setPadding(dp(8), dp(14), dp(8), dp(14))
+            setOnClickListener { showFull = true; render() }
+        }, lp())
+        if (full) body.addView(section(tr("Bill photos", "Bill photos")) {
             if (c.localPhoto.isNotBlank() && File(c.localPhoto).exists()) {
                 val v = vertical { }; addView(v, lp())
                 showPhotoAsync(v, "local:${c.localPhoto}") { Img.decodeFile(c.localPhoto, screenW()) }
