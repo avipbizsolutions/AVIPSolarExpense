@@ -609,6 +609,11 @@ function submitClaim(d) {
     let payBy = paidBy;
     let mainAmt = amount;
     let extra = 0;
+    if (fuel && paidBy === 'Advance') {
+      // a fuel claim is never split, but with no advance left it cannot be against the advance
+      const fb = balanceFor(u.name, u.id, rows(LOG), rows(ADV));
+      if (money(fb.advanceBalance - fb.advancePending) <= 0) payBy = 'Self';
+    }
     if (!fuel && paidBy === 'Advance') {
       const bal = balanceFor(u.name, u.id, rows(LOG), rows(ADV));
       const avail = Math.max(0, money(bal.advanceBalance - bal.advancePending));

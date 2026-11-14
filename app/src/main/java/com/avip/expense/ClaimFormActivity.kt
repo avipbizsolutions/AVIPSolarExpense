@@ -89,6 +89,7 @@ class ClaimFormActivity : AppCompatActivity() {
     private lateinit var draftBtn: View
     /** A rejected claim being corrected: its photos are already with the office and stay unless retaken. */
     private var fixClaim: Claim? = null
+    private var advanceLeft = 0.0
     private var keepStart = false
     private var keepEnd = false
     private var remoteBills = 0
@@ -139,7 +140,9 @@ class ClaimFormActivity : AppCompatActivity() {
             paidBy = if (f.paidBy == "Advance") "Advance" else "Self"
             paymentMode = f.paymentMode.takeIf { it in modes } ?: "Cash"
         }
-        if (bal.advanceBalance <= 0) paidBy = "Self"
+        // what is left of the advance after claims still waiting for approval
+        advanceLeft = bal.advanceBalance - bal.advancePending
+        if (advanceLeft <= 0) paidBy = "Self"
 
         body = when {
             fixClaim != null -> screen(tr("ठीक करके फिर भेजें", "Fix and resend"), fixClaim!!.category + " · " + Fmt.date(fixClaim!!.date),
@@ -151,21 +154,17 @@ class ClaimFormActivity : AppCompatActivity() {
             else -> screen(tr("नया Claim", "New claim"), tr("एक bill = एक claim", "One bill = one claim"), bottom = pillButton(tr("Claim भेजें", "Send claim"), Ui.SUN, Ui.TEXT, heightDp = 54) { submit() })
         }
         if (starting) {
-            // the how-to can be hidden once the rider knows it; one line about GPS always stays
+            // the how-to can be hidden once the rider knows it (the Journey running notification still says GPS is on)
             val prefs = getSharedPreferences("settings", MODE_PRIVATE)
             val box = vertical { }
             fun draw() {
                 box.removeAllViews()
                 val hidden = prefs.getBoolean("hide_journey_help", false)
                 if (hidden) {
-                    box.addView(horizontal {
-                        background = rounded(Ui.BRAND_LIGHT, dpf(12f))
-                        setPadding(dp(14), dp(10), dp(10), dp(10))
-                        addView(text(tr("📍 Journey में GPS से दूरी और रास्ता record होता है।", "📍 GPS records the distance and route during the journey."), 12.5f, Ui.BRAND_DARK), lp(0, WRAP, 1f))
-                        addView(text(tr("तरीका देखें", "Show steps"), 12.5f, Ui.BRAND, bold = true) {
-                            setPadding(dp(10), dp(6), dp(6), dp(6))
-                            setOnClickListener { prefs.edit().putBoolean("hide_journey_help", false).apply(); draw() }
-                        })
+                    box.addView(text(tr("ⓘ तरीका देखें", "ⓘ Show steps"), 12.5f, Ui.BRAND, bold = true) {
+                        gravity = Gravity.END
+                        setPadding(dp(10), dp(4), dp(6), dp(4))
+                        setOnClickListener { prefs.edit().putBoolean("hide_journey_help", false).apply(); draw() }
                     }, lp())
                 } else {
                     box.addView(note(tr("① अभी odometer की photo लें और reading भरें।\n② \"Journey शुरू करें\" दबाएँ।\n③ लौटने पर Home से यही journey खोलें, आखिर की photo लें और claim भेजें।\n📍 Journey के दौरान GPS से दूरी और रास्ता record होगा और office को claim के साथ दिखेगा।",
@@ -287,10 +286,20 @@ class ClaimFormActivity : AppCompatActivity() {
         showBike()
 
         val whoPaid = section(tr("पैसे किसने दिए", "Who paid") + " *") {
-            addView(chips(listOf(tr("Advance से", "From advance"), tr("अपने पैसे से", "Own money")), if (paidBy == "Self") tr("अपने पैसे से", "Own money") else tr("Advance से", "From advance")) { pick ->
+            var paidChips: View? = null
+            paidChips = chips(listOf(tr("Advance से", "From advance"), tr("अपने पैसे से", "Own money")), if (paidBy == "Self") tr("अपने पैसे से", "Own money") else tr("Advance से", "From advance")) { pick ->
                 paidBy = when (pick) { tr("Advance से", "From advance") -> "Advance"; else -> "Self" }
+                // no advance left: a claim cannot be made against the advance
+                if (advanceLeft <= 0 && (paidBy == "Advance" || pick.isBlank())) {
+                    if (paidBy == "Advance") toast(tr("आपके पास Advance नहीं बचा है — यह claim \"अपने पैसे से\" जाएगा।", "You have no advance left. This claim goes as \"Own money\"."))
+                    paidBy = "Self"
+                    @Suppress("UNCHECKED_CAST")
+                    (paidChips?.tag as? (String) -> Unit)?.invoke(tr("अपने पैसे से", "Own money"))
+                }
                 checkAdvance(bal)
-            }, lp())
+            }
+            addView(paidChips, lp())
+            if (advanceLeft <= 0) addView(text(tr("आपके पास Advance नहीं बचा है, इसलिए \"Advance से\" नहीं चुना जा सकता।", "You have no advance left, so \"From advance\" cannot be chosen."), 12.5f, Ui.SUN_TEXT, bold = true), lp().margins(context, t = 8))
             advanceNote = text("", 13f, Ui.SUN_TEXT) { visibility = View.GONE }
             addView(advanceNote, lp().margins(context, t = 8))
             addView(text(tr("Advance से = आपके Advance में से कटेगा। अपने पैसे से = Office आपको वापस देगा।", "From advance = deducted from your advance. Own money = the office pays you back."), 12.5f, Ui.MUTED), lp().margins(context, t = 8))
@@ -555,6 +564,7 @@ class ClaimFormActivity : AppCompatActivity() {
     }
 
     private fun submit() {
+        if (paidBy == "Advance" && advanceLeft <= 0) paidBy = "Self"
         val a = amount.text.toString().toDoubleOrNull() ?: 0.0
         if (category.isBlank()) { toast(tr("Category चुनें", "Choose category")); return }
         if (Settings.isFuel(category)) { submitFuel(); return }
