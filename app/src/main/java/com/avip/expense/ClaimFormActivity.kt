@@ -787,7 +787,11 @@ class ClaimFormActivity : AppCompatActivity() {
         if (fixClaim != null) claim.put("fix", true)
         if (journeyMode) {
             JourneyTracker.km(this, claimId)?.let { claim.put("trackKm", it) }
-            JourneyTracker.route(this, claimId).takeIf { it.contains(';') }?.let { claim.put("track", it) }
+            // the route always has the places of the two odometer photos as its first and last point,
+            // so the office sees where the journey started and ended even if GPS gave nothing on the way
+            val pt = { s: PhotoStamp.Info? -> s?.let { String.format(java.util.Locale.US, "%.5f,%.5f", it.lat, it.lng) } }
+            listOfNotNull(pt(PhotoStamp.parse(odoStart.stamp)), JourneyTracker.route(this, claimId).takeIf { it.isNotBlank() }, pt(PhotoStamp.parse(odoEnd.stamp)))
+                .joinToString(";").takeIf { it.contains(';') }?.let { claim.put("track", it) }
             JourneyTracker.clear(this, claimId)
         }
         // saved on the phone at once; it goes to the office in the background (no waiting for the upload)

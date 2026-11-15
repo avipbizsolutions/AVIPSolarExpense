@@ -123,6 +123,11 @@ class JourneyTracker : Service(), LocationListener {
                     lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 4000L, 8f, this, mainLooper)
                     listening = true
                 }
+                // mobile-tower / Wi-Fi positions as well: they keep the route going where the sky is not visible
+                if (lm.allProviders.contains(LocationManager.NETWORK_PROVIDER)) {
+                    lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 15000L, 30f, this, mainLooper)
+                    listening = true
+                }
             } catch (_: SecurityException) {} catch (_: Exception) {}
         }
         return START_STICKY
@@ -136,9 +141,13 @@ class JourneyTracker : Service(), LocationListener {
 
     override fun onLocationChanged(loc: Location) {
         if (id.isBlank()) return
-        if (loc.hasAccuracy() && loc.accuracy > MAX_ACCURACY) return
         val p = prefs(this)
         val o = try { JSONObject(p.getString("j_$id", "") ?: "") } catch (_: Exception) { JSONObject().put("m", 0.0).put("n", 0) }
+        if (loc.hasAccuracy() && loc.accuracy > MAX_ACCURACY) {
+            // too rough to measure with, but it shows the phone's location was working
+            if (o.optInt("n") == 0 && loc.accuracy <= 300f) p.edit().putString("j_$id", o.put("n", 1).toString()).apply()
+            return
+        }
         val now = System.currentTimeMillis()
         if (o.has("lat")) {
             val d = FloatArray(1)

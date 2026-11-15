@@ -61,9 +61,14 @@ class RouteActivity : AppCompatActivity() {
             clipToOutline = true
             addView(ImageView(context).apply { setImageBitmap(map); adjustViewBounds = true }, lp())
         }, lp().margins(this, b = 10))
-        body.addView(text(tr("● हरा = शुरू   📍 लाल = आखिर   बैंगनी रेखा = GPS का रास्ता", "● Green = start   📍 Red = end   Purple line = route by GPS"), 12.5f, Ui.MUTED), lp().margins(this, b = 10))
+        body.addView(text(tr("● हरा = शुरू   📍 लाल = आखिर   बैंगनी रेखा = GPS का रास्ता", "● Green = start photo   📍 Red = end photo   Purple line = route by GPS"), 12.5f, Ui.MUTED), lp().margins(this, b = 10))
         body.addView(section(tr("हिसाब", "Summary")) {
-            addView(kv(tr("GPS से नापी दूरी", "Distance by GPS"), Fmt.km(o.optDouble("km", 0.0)) + " km", bold = true))
+            val straight = FloatArray(1).also { android.location.Location.distanceBetween(pts.first().first, pts.first().second, pts.last().first, pts.last().second, it) }[0] / 1000.0
+            val onlyEnds = pts.size <= 2
+            if (!onlyEnds) addView(kv(tr("GPS से नापी दूरी", "Distance by GPS"), Fmt.km(o.optDouble("km", 0.0)) + " km", bold = true))
+            addView(kv(tr("शुरू से आखिर सीधी दूरी", "Start to end, straight line"), Fmt.km(Math.round(straight * 10) / 10.0) + " km", bold = onlyEnds))
+            if (onlyEnds) addView(note(tr("सिर्फ़ दोनों odometer photos की जगह पता है। रास्ते में phone से GPS position नहीं मिली, इसलिए बीच का रास्ता नहीं है।",
+                "Only the places of the two odometer photos are known. The phone gave no GPS positions on the way, so the road in between is not shown."), Ui.SUN_LIGHT, Ui.SUN_TEXT), lp().margins(context, t = 6, b = 6))
             if (c != null && c.km > 0) addView(kv(tr("Odometer की दूरी", "Distance by odometer"), Fmt.km(c.km) + " km"))
             if (o.optString("start").isNotBlank()) addView(kv(tr("शुरू", "Started"), o.optString("start")))
             if (o.optString("end").isNotBlank()) addView(kv(tr("आखिर", "Ended"), o.optString("end")))
