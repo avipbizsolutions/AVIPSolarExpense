@@ -70,6 +70,12 @@ class HomeActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // location taken away in Settings: back to the start screen, which asks for it again
+        if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            startActivity(Intent(this, SplashActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NEW_TASK))
+            finish()
+            return
+        }
         if (user == null) return
         JourneyTracker.ensure(this)
         render()

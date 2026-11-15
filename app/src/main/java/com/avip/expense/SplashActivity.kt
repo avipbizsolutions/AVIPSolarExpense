@@ -232,8 +232,74 @@ class SplashActivity : AppCompatActivity() {
         (status.parent as ViewGroup).let { p -> p.addView(box, p.indexOfChild(status) + 1, lp(WRAP, WRAP).margins(this, t = 16)) }
     }
 
+    // ---- location is required: odometer photos carry it, and journeys are measured with it.
+    // It is used only while the camera is open or a journey is running.
+    private var locationBox: View? = null
+    private var askedOnce = false
+    private val locationAsk = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        askedOnce = true
+        goNext()
+    }
+
+    private fun hasPreciseLocation() =
+        ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    private fun hasAnyLocation() = hasPreciseLocation() ||
+        ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    /** The app does not open until location is allowed (precise). */
+    private fun showLocationGate() {
+        if (isFinishing) return
+        progress.visibility = View.GONE
+        retry.visibility = View.GONE
+        locationBox?.let { (it.parent as? ViewGroup)?.removeView(it) }
+        val coarseOnly = hasAnyLocation() && !hasPreciseLocation()
+        // after two refusals Android stops showing its dialog: then only the app settings can allow it
+        val blocked = askedOnce && !coarseOnly && !shouldShowRequestPermissionRationale(android.Manifest.permission.ACCESS_FINE_LOCATION)
+        status.text = when {
+            coarseOnly -> tr("📍 \"Precise\" location ज़रूरी है।\nAndroid में \"Approximate\" चुना गया है — इससे odometer photo की जगह और journey की दूरी सही नहीं आएगी।",
+                "📍 Precise location is required.\n\"Approximate\" was chosen, so the odometer photo place and the journey distance would be wrong.")
+            else -> tr("📍 इस App के लिए Location ज़रूरी है।\n• Odometer और bill photos पर जगह लगती है\n• Journey के दौरान दूरी और रास्ता नापा जाता है\nLocation सिर्फ़ camera खुला होने पर और journey चलते समय ली जाती है।",
+                "📍 This app needs your location.\n• Odometer and bill photos are stamped with the place\n• During a journey the distance and route are measured\nLocation is used only while the camera is open or a journey is running.")
+        }
+        val box = vertical {
+            gravity = Gravity.CENTER_HORIZONTAL
+            addView(pillButton(if (blocked || coarseOnly) tr("Settings में Location चालू करें", "Allow location in Settings") else tr("Location की अनुमति दें", "Allow location"), Ui.SUN, Ui.TEXT) {
+                if (blocked || coarseOnly) {
+                    try {
+                        startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+                        Toast.makeText(this@SplashActivity, tr("Permissions › Location › \"Allow only while using the app\" और \"Use precise location\" चालू करें",
+                            "Permissions › Location › \"Allow only while using the app\" and turn on \"Use precise location\""), Toast.LENGTH_LONG).show()
+                    } catch (_: Exception) {}
+                } else locationAsk.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+            }, lp(dp(260), WRAP))
+            if (blocked || coarseOnly) addView(text(tr("Permissions › Location › \"Allow only while using the app\" + \"Use precise location\"",
+                "Permissions › Location › \"Allow only while using the app\" + \"Use precise location\""), 12f, 0xDDFFFFFF.toInt()) { gravity = Gravity.CENTER }, lp(WRAP, WRAP).margins(context, t = 10))
+        }
+        locationBox = box
+        (status.parent as ViewGroup).let { p -> p.addView(box, p.indexOfChild(status) + 1, lp(WRAP, WRAP).margins(this, t = 16)) }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // back from Settings with location allowed: carry on
+        if (locationBox != null && hasPreciseLocation()) {
+            (locationBox?.parent as? ViewGroup)?.removeView(locationBox)
+            locationBox = null
+            goNext()
+        }
+    }
+
     private fun goNext() {
         if (leaving || isFinishing) return
+        if (!hasPreciseLocation()) {
+            // first time: Android's own dialog straight away, with the reason on screen behind it
+            if (!askedOnce && !hasAnyLocation()) { showLocationGate(); askedOnce = false; locationAsk.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION)); return }
+            showLocationGate()
+            return
+        }
+        locationBox?.let { (it.parent as? ViewGroup)?.removeView(it) }
+        locationBox = null
         leaving = true
         val loggedIn = Session.token(this).isNotBlank() && Session.user(this) != null && !Session.mustSetPin(this)
         startActivity(Intent(this, if (loggedIn) HomeActivity::class.java else LoginActivity::class.java))
