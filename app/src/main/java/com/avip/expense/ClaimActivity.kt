@@ -100,6 +100,8 @@ class ClaimActivity : AppCompatActivity() {
                     if (c.km > 0 && diff > maxOf(3.0, c.trackKm * 0.2)) addView(text(tr("⚠ Odometer की दूरी GPS से ${Fmt.km(Math.round(diff * 10) / 10.0)} km ज़्यादा है।", "⚠ The odometer distance is ${Fmt.km(Math.round(diff * 10) / 10.0)} km more than GPS measured."), 13f, Ui.DANGER, bold = true), lp().margins(context, t = 4))
                     if (c.trackKm == 0.0) addView(text(tr("GPS चालू था, पर phone कहीं गया नहीं।", "GPS was on, but the phone did not move."), 13f, Ui.DANGER, bold = true), lp().margins(context, t = 4))
                 } else if (u.seesTeam && c.status != Status.QUEUED && c.viaJourney) addView(kv(tr("GPS से नापी दूरी", "Distance by GPS"), tr("नहीं मिली (GPS / app बंद)", "not recorded (GPS or app was off)")))
+                if (u.seesTeam && c.stopCount > 0) addView(kv(tr("रुकना (3 min+)", "Stoppages (3 min+)"),
+                    tr("${c.stopCount} बार · कुल ${Fmt.minutes(c.stopMin)}", "${c.stopCount} · total ${Fmt.minutes(c.stopMin)}"), bold = true))
                 if (u.seesTeam && c.hasRoute) addView(pillButton(tr("रास्ते का Map देखें", "View route map"), Ui.BRAND_LIGHT, Ui.BRAND_DARK, heightDp = 44, iconRes = R.drawable.ic_location) {
                     startActivity(android.content.Intent(this@ClaimActivity, RouteActivity::class.java).putExtra(RouteActivity.EXTRA_ID, c.id))
                 }, lp().margins(context, t = 8, b = 4))

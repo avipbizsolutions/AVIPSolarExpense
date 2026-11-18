@@ -787,6 +787,7 @@ class ClaimFormActivity : AppCompatActivity() {
         if (fixClaim != null) claim.put("fix", true)
         if (journeyMode) {
             JourneyTracker.km(this, claimId)?.let { claim.put("trackKm", it) }
+            JourneyTracker.stops(this, claimId, odoEnd.time ?: System.currentTimeMillis()).takeIf { it.isNotBlank() }?.let { claim.put("stops", it) }
             // the route always has the places of the two odometer photos as its first and last point,
             // so the office sees where the journey started and ended even if GPS gave nothing on the way
             val pt = { s: PhotoStamp.Info? -> s?.let { String.format(java.util.Locale.US, "%.5f,%.5f", it.lat, it.lng) } }

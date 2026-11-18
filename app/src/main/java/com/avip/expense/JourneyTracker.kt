@@ -80,6 +80,23 @@ class JourneyTracker : Service(), LocationListener {
         fun route(c: Context, journeyId: String): String =
             try { JSONObject(prefs(c).getString("j_$journeyId", "") ?: "").optString("r") } catch (_: Exception) { "" }
 
+        /** A halt of at least this long, in one place, is listed as a stoppage. */
+        const val STOP_MIN_MS = 3 * 60_000L
+        /** Moved less than this from where it halted: still the same stoppage. */
+        private const val STOP_RADIUS = 60.0
+
+        /**
+         * The stoppages of a journey as "lat,lng,fromMs,toMs;…". A halt still going on when the
+         * journey is finished is counted up to endMs (the end odometer photo).
+         */
+        fun stops(c: Context, journeyId: String, endMs: Long): String {
+            val o = try { JSONObject(prefs(c).getString("j_$journeyId", "") ?: "") } catch (_: Exception) { return "" }
+            val list = o.optString("s").split(';').filter { it.isNotBlank() }.toMutableList()
+            if (o.has("hlat") && endMs - o.optLong("ht") >= STOP_MIN_MS)
+                list += String.format(java.util.Locale.US, "%.5f,%.5f,%d,%d", o.optDouble("hlat"), o.optDouble("hlng"), o.optLong("ht"), endMs)
+            return list.takeLast(60).joinToString(";")
+        }
+
         /** A point is added to the route about every 60 m; a very long route is thinned to every second point. */
         private const val ROUTE_STEP = 60.0
         private const val ROUTE_MAX = 700
@@ -149,6 +166,23 @@ class JourneyTracker : Service(), LocationListener {
             return
         }
         val now = System.currentTimeMillis()
+        // ---- stoppages: where the phone stays within ~60 m, and since when
+        if (!o.has("hlat")) o.put("hlat", loc.latitude).put("hlng", loc.longitude).put("ht", now)
+        else {
+            val h = FloatArray(1)
+            Location.distanceBetween(o.optDouble("hlat"), o.optDouble("hlng"), loc.latitude, loc.longitude, h)
+            if (h[0] > STOP_RADIUS) {
+                // left the place: a halt long enough is kept. A still phone gives almost no fixes, so it
+                // left about (distance from the halt ÷ ~20 km/h) before this fix
+                val left = maxOf(o.optLong("ht"), now - (h[0] / 5.5 * 1000).toLong())
+                if (left - o.optLong("ht") >= STOP_MIN_MS) {
+                    val s = String.format(java.util.Locale.US, "%.5f,%.5f,%d,%d", o.optDouble("hlat"), o.optDouble("hlng"), o.optLong("ht"), left)
+                    o.put("s", listOf(o.optString("s"), s).filter { it.isNotBlank() }.joinToString(";"))
+                }
+                o.put("hlat", loc.latitude).put("hlng", loc.longitude).put("ht", now)
+            }
+        }
+        p.edit().putString("j_$id", o.toString()).apply()
         if (o.has("lat")) {
             val d = FloatArray(1)
             Location.distanceBetween(o.optDouble("lat"), o.optDouble("lng"), loc.latitude, loc.longitude, d)

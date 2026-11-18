@@ -64,6 +64,8 @@ data class Claim(
     val trackKm: Double = -1.0,
     /** A GPS route is saved with the claim (the map is fetched only when opened). */
     val hasRoute: Boolean = false,
+    /** Stoppages of 3 minutes or more during the journey (approvers only), and their total minutes. */
+    val stopCount: Int = 0, val stopMin: Int = 0,
 ) {
     val isFuel get() = Settings.isFuel(category)
 
@@ -86,6 +88,7 @@ data class Claim(
             o.optDouble("odoGap", 0.0), o.optDouble("odoPrevEnd", 0.0), o.optString("odoPrevBy"), o.optString("odoPrevDate"),
             // an office script older than this rule sends neither flag: no warning then
             if (o.has("viaJourney")) o.optBoolean("viaJourney") else if (o.has("journey")) o.optBoolean("journey") else true, o.optDouble("trackKm", -1.0), o.optBoolean("hasRoute"),
+            o.optInt("stopCount"), o.optInt("stopMin"),
         )
 
         fun list(a: JSONArray?): List<Claim> = (0 until (a?.length() ?: 0)).map { from(a!!.getJSONObject(it)) }
@@ -171,6 +174,8 @@ object Store {
 }
 
 object Fmt {
+    /** 75 → "1 h 15 min", 20 → "20 min". */
+    fun minutes(m: Int): String = if (m >= 60) "${m / 60} h" + (if (m % 60 > 0) " ${m % 60} min" else "") else "$m min"
     private val day = SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH)
     private val iso = SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)
 

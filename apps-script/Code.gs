@@ -175,7 +175,7 @@ function rows(name) {
   return list;
 }
 
-const OPTIONAL_COLS = ['Claimed Via', 'GPS Distance (km)', 'GPS Route'];
+const OPTIONAL_COLS = ['Claimed Via', 'GPS Distance (km)', 'GPS Route', 'GPS Stops'];
 /** Columns that hold plain numbers: kept in a number format, so Google never shows them as dates. */
 const NUMBER_COLS = ['KM Travelled', 'Odometer Start', 'Odometer End', 'Rate per KM (₹)', 'GPS Distance (km)'];
 const VIA_JOURNEY = 'Start journey';
@@ -188,7 +188,7 @@ const VIA_MANUAL = 'New claim';
  */
 function ensureSheet_() {
   const cache = CacheService.getScriptCache();
-  if (cache.get('sheet-ok-4')) return;
+  if (cache.get('sheet-ok-5')) return;
   const addCol = function (sh, title) {
     const last = sh.getLastColumn();
     if (sh.getMaxColumns && last >= sh.getMaxColumns()) sh.insertColumnAfter(last);
@@ -216,7 +216,7 @@ function ensureSheet_() {
     }
   }
   SpreadsheetApp.flush();
-  cache.put('sheet-ok-4', '1', 21600);
+  cache.put('sheet-ok-5', '1', 21600);
 }
 const DEFAULT_BIKES = ['Bajaj Chetak', 'HF Deluxe', 'Yamaha FZ'];
 
@@ -395,6 +395,11 @@ function claimOut(c, withMember) {
   // distance measured by GPS during the journey: only for approvers, accounts and founders
   if (withMember && String(c['GPS Distance (km)'] === undefined ? '' : c['GPS Distance (km)']).trim() !== '') o.trackKm = num(c['GPS Distance (km)']);
   if (withMember && clean(c['GPS Route']).indexOf(';') > 0) o.hasRoute = true;
+  if (withMember && clean(c['GPS Stops'])) {
+    const st = stopList_(c['GPS Stops']);
+    o.stopCount = st.length;
+    o.stopMin = st.reduce(function (a, x) { return a + x.min; }, 0);
+  }
   if (withMember) { o.member = clean(c['Team Member']); o.memberId = clean(c['Employee ID']); o.team = clean(c['Team']); }
   return o;
 }
@@ -553,6 +558,8 @@ function submitClaim(d) {
   const hasTrack = viaJourney && c.trackKm !== undefined && c.trackKm !== null && c.trackKm !== '' && num(c.trackKm) >= 0 && num(c.trackKm) < 3000;
   const trackKm = hasTrack ? Math.round(num(c.trackKm) * 10) / 10 : '';
   const route = viaJourney && /^[-0-9.,;]{5,45000}$/.test(clean(c.track)) ? clean(c.track) : '';
+  // stoppages: "lat,lng,fromMs,toMs;…"
+  const stops = viaJourney && /^[-0-9.,;]{10,6000}$/.test(clean(c.stops, 6000)) ? clean(c.stops, 6000) : '';
   let amount = money(c.amount);
   let odoStart = 0, odoEnd = 0, km = num(c.km), rate = 0, startStamp = null, endStamp = null;
   if (fuel) {
@@ -651,6 +658,7 @@ function submitClaim(d) {
       'Claimed Via': fuel ? (viaJourney ? VIA_JOURNEY : VIA_MANUAL) : '',
       'GPS Distance (km)': trackKm,
       'GPS Route': route,
+      'GPS Stops': stops,
     });
     if (extra > 0) {
       append(LOG, {
@@ -829,7 +837,17 @@ function claimRoute(d) {
   const u = me(d);
   if (!seesAll(u)) throw new Error('Only approvers and accounts can see the route.');
   const c = findClaim(d.claimId);
-  return { route: clean(c['GPS Route']), km: num(c['GPS Distance (km)']), start: iso(c['Start Photo Time']), end: iso(c['End Photo Time']) };
+  return { route: clean(c['GPS Route']), km: num(c['GPS Distance (km)']), start: iso(c['Start Photo Time']), end: iso(c['End Photo Time']), stops: stopList_(c['GPS Stops']) };
+}
+
+/** "lat,lng,fromMs,toMs;…" → [{lat, lng, from, to, min}] (from / to as "HH:mm"). */
+function stopList_(v) {
+  return clean(v, 6000).split(';').map(function (s) {
+    const p = s.split(',').map(Number);
+    if (p.length !== 4 || p.some(function (x) { return !isFinite(x); }) || p[3] <= p[2]) return null;
+    return { lat: p[0], lng: p[1], from: Utilities.formatDate(new Date(p[2]), TZ, 'hh:mm a'), to: Utilities.formatDate(new Date(p[3]), TZ, 'hh:mm a'),
+      min: Math.round((p[3] - p[2]) / 60000) };
+  }).filter(Boolean);
 }
 
 function deleteClaim(d) {

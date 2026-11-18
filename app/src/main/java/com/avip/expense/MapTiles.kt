@@ -66,8 +66,10 @@ object MapTiles {
      * A map of a journey: the route as a line, a green dot at the start and a red pin at the end,
      * zoomed so the whole route fits. Without internet the line is drawn on a plain background.
      */
-    fun route(points: List<Pair<Double, Double>>, w: Int, h: Int): Bitmap? {
-        if (points.isEmpty() || w <= 0 || h <= 0) return null
+    fun route(route: List<Pair<Double, Double>>, w: Int, h: Int, stops: List<Pair<Double, Double>> = emptyList()): Bitmap? {
+        if (route.isEmpty() || w <= 0 || h <= 0) return null
+        // the map is zoomed so the route and every stoppage fit
+        val points = route + stops
         fun wx(lon: Double, n: Int) = (lon + 180.0) / 360.0 * n * TILE
         fun wy(lat: Double, n: Int): Double {
             val r = Math.toRadians(lat.coerceIn(-85.0511, 85.0511))
@@ -97,8 +99,8 @@ object MapTiles {
                 canvas.drawBitmap(tile, (tx * TILE - left).toFloat(), (ty * TILE - top).toFloat(), null)
             }
         }
-        val xs = points.map { (wx(it.second, n) - left).toFloat() }
-        val ys = points.map { (wy(it.first, n) - top).toFloat() }
+        val xs = route.map { (wx(it.second, n) - left).toFloat() }
+        val ys = route.map { (wy(it.first, n) - top).toFloat() }
         val unit = minOf(w, h) / 100f
         val path = Path().apply { moveTo(xs[0], ys[0]); for (i in 1 until xs.size) lineTo(xs[i], ys[i]) }
         val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeJoin = Paint.Join.ROUND; strokeCap = Paint.Cap.ROUND }
@@ -108,6 +110,14 @@ object MapTiles {
         canvas.drawCircle(xs[0], ys[0], unit * 2.2f, fill.apply { color = Color.WHITE })
         canvas.drawCircle(xs[0], ys[0], unit * 1.6f, fill.apply { color = Color.rgb(27, 127, 76) })
         drawPin(canvas, xs.last(), ys.last(), minOf(w, h) * 0.7f)
+        // stoppages: numbered orange circles, in the order they happened
+        val num = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = unit * 3.0f; typeface = android.graphics.Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+        stops.forEachIndexed { i, s ->
+            val x = (wx(s.second, n) - left).toFloat(); val y = (wy(s.first, n) - top).toFloat()
+            canvas.drawCircle(x, y, unit * 3.6f, fill.apply { color = Color.WHITE })
+            canvas.drawCircle(x, y, unit * 3.0f, fill.apply { color = Color.rgb(230, 120, 20) })
+            canvas.drawText((i + 1).toString(), x, y - (num.descent() + num.ascent()) / 2, num)
+        }
         val text = "© OpenStreetMap"
         val tp = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(40, 40, 40); textSize = unit * 2.6f }
         val tw = tp.measureText(text)
