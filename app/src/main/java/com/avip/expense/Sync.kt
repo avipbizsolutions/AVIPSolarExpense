@@ -65,7 +65,7 @@ object Actions {
                         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(o.getString("id"), o.toString()).commit()
                     }
                 } catch (e: ApiException) {
-                    if (e.network || e.sessionExpired) break
+                    if (e.network || e.sessionExpired || e.updateRequired) break
                     o.put("error", e.message ?: "Could not send")
                     app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(o.getString("id"), o.toString()).commit()
                 } catch (e: Exception) {

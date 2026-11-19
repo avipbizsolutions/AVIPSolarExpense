@@ -456,7 +456,8 @@ object Outbox {
                 try {
                     send(app, o.getJSONObject("claim").getString("id")); sent++
                 } catch (e: ApiException) {
-                    if (e.sessionExpired || e.network) break
+                    // an old app version: the claims wait and go after the update
+                    if (e.sessionExpired || e.network || e.updateRequired) break
                     markError(app, o, e.message ?: "")
                 } catch (e: Exception) {
                     markError(app, o, e.message ?: "Could not send")

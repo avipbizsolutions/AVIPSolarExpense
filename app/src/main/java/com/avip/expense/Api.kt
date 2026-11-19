@@ -6,7 +6,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /** A readable error from the office sheet. [sessionExpired] = log in again. */
-class ApiException(message: String, val sessionExpired: Boolean = false, val network: Boolean = false) : Exception(message)
+class ApiException(message: String, val sessionExpired: Boolean = false, val network: Boolean = false, val updateRequired: Boolean = false) : Exception(message)
 
 /**
  * The person logged in. Name, team and role come from the AVIP Team Directory
@@ -129,6 +129,8 @@ object Api {
         if (!ep.startsWith("https://")) throw ApiException("Office server is not set up yet. Please tell the office.")
         body.put("key", SHARED_KEY).put("kind", kind)
         if (!body.has("token")) body.put("token", Session.token(c))
+        // the office refuses an app older than the latest release
+        body.put("v", Updater.currentVersionCode(c))
         val text = try {
             val conn = URL(ep).openConnection() as HttpURLConnection
             try {
@@ -153,6 +155,15 @@ object Api {
         }
         if (!o.optBoolean("ok")) {
             val msg = o.optString("error").ifBlank { "Something went wrong." }
+            if (o.optBoolean("updateRequired")) {
+                // from a screen (not a background check): back to the start screen, which installs the update
+                if (c is android.app.Activity && c !is SplashActivity) c.runOnUiThread {
+                    c.startActivity(android.content.Intent(c, SplashActivity::class.java)
+                        .putExtra(SplashActivity.EXTRA_UPDATE, true)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK))
+                }
+                throw ApiException(msg, updateRequired = true)
+            }
             if (msg.startsWith("SESSION:")) throw ApiException(msg.removePrefix("SESSION:").trim(), sessionExpired = true)
             if (msg == "unknown kind") throw ApiException("Office server needs updating (new Apps Script version).")
             throw ApiException(msg)

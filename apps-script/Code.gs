@@ -79,6 +79,14 @@ function doPost(e) {
     const d = JSON.parse(e.postData.contents);
     if (d.key !== SHARED_KEY) return out({ ok: false, error: 'Not allowed' });
     BIKE_RUNS = null; DUP_INDEX = null; SPLIT_INDEX = null;
+    // updates are compulsory: an app older than the latest release gets no data, only "update"
+    const need = requiredVersion_();
+    // apps from before this check (1.0.161 and older) send no version: they count as 1.0.161
+    const have = d.v === undefined || d.v === null || d.v === '' ? 161 : Number(d.v);
+    if (need && !(have >= need)) {
+      return out({ ok: false, updateRequired: true, minVersion: need,
+        error: 'This app is out of date. Close the app and open it again: it will update itself (version 1.0.' + need + ').' });
+    }
     const h = HANDLERS[d.kind];
     if (!h) return out({ ok: false, error: 'unknown kind' });
     const result = h(d) || {};
@@ -87,6 +95,29 @@ function doPost(e) {
   } catch (err) {
     return out({ ok: false, error: String((err && err.message) || err) });
   }
+}
+
+/**
+ * The version number of the latest app release on GitHub (v1.0.161 → 161), checked at most every
+ * 10 minutes. The web page is used, not the GitHub API, so Google's shared servers are never rate-limited.
+ * If GitHub cannot be reached, nothing is blocked.
+ */
+const RELEASES_URL = 'https://github.com/avipbizsolutions/AVIPSolarExpense/releases/latest';
+function requiredVersion_() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('min-app-version');
+  if (hit !== null) return Number(hit) || 0;
+  let v = 0;
+  try {
+    const res = UrlFetchApp.fetch(RELEASES_URL, { followRedirects: false, muteHttpExceptions: true });
+    const h = res.getHeaders() || {};
+    const loc = String(h.Location || h.location || '');
+    const m = loc.match(/\/tag\/v\d+\.\d+\.(\d+)\b/);
+    if (m) v = Number(m[1]);
+  } catch (_) {}
+  // a failed check is retried after 2 minutes, a good one kept for 10
+  cache.put('min-app-version', String(v), v ? 600 : 120);
+  return v;
 }
 
 function out(o) {

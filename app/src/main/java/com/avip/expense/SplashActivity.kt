@@ -75,6 +75,11 @@ class SplashActivity : AppCompatActivity() {
             else goNext()
         }
 
+    companion object {
+        /** Opened because the office refused this version: the app does not go on without the update. */
+        const val EXTRA_UPDATE = "update"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Lang.load(this)
@@ -149,6 +154,13 @@ class SplashActivity : AppCompatActivity() {
 
             val latest = update.await()
             val current = Updater.currentVersionCode(this@SplashActivity)
+            if (latest == null && intent.getBooleanExtra(EXTRA_UPDATE, false)) {
+                // the office says this version is too old, but the update could not be fetched: no way around it
+                progress.visibility = View.GONE
+                status.text = tr("इस App का नया version ज़रूरी है।\nInternet चालू करके फिर कोशिश करें।", "A newer version of this app is required.\nTurn on the internet and try again.")
+                retry.visibility = View.VISIBLE
+                return@launch
+            }
             if (latest != null && latest.versionCode > current) {
                 // updates are compulsory: the app does not open on an old version
                 pendingRelease = latest
