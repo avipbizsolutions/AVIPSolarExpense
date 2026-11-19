@@ -116,10 +116,14 @@ class JourneyTracker : Service(), LocationListener {
          * The stoppages of a journey as "lat,lng,fromMs,toMs;…". A halt still going on when the
          * journey is finished is counted up to endMs (the end odometer photo).
          */
-        fun stops(c: Context, journeyId: String, endMs: Long): String {
+        fun stops(c: Context, journeyId: String, endMs: Long, endLat: Double? = null, endLng: Double? = null): String {
             val o = try { JSONObject(prefs(c).getString("j_$journeyId", "") ?: "") } catch (_: Exception) { return "" }
             val list = o.optString("s").split(';').filter { it.isNotBlank() }.toMutableList()
-            if (o.has("hlat") && endMs - o.optLong("ht") >= STOP_MIN_MS)
+            // the last halt runs on to the end photo only if the end photo was taken there; if it was taken
+            // far away, the phone moved on without GPS: that time is a gap, not a stoppage
+            val endFar = endLat != null && endLng != null && o.has("hlat") &&
+                FloatArray(1).also { Location.distanceBetween(o.optDouble("hlat"), o.optDouble("hlng"), endLat, endLng, it) }[0] >= GAP_MIN_M
+            if (o.has("hlat") && !endFar && endMs - o.optLong("ht") >= STOP_MIN_MS)
                 list += String.format(java.util.Locale.US, "%.5f,%.5f,%d,%d", o.optDouble("hlat"), o.optDouble("hlng"), o.optLong("ht"), endMs)
             return list.takeLast(60).joinToString(";")
         }

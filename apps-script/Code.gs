@@ -78,7 +78,7 @@ function doPost(e) {
   try {
     const d = JSON.parse(e.postData.contents);
     if (d.key !== SHARED_KEY) return out({ ok: false, error: 'Not allowed' });
-    BIKE_RUNS = null; DUP_INDEX = null;
+    BIKE_RUNS = null; DUP_INDEX = null; SPLIT_INDEX = null;
     const h = HANDLERS[d.kind];
     if (!h) return out({ ok: false, error: 'unknown kind' });
     const result = h(d) || {};
@@ -325,6 +325,11 @@ function odoDatesDiffer(c) {
 }
 /** Why only Atul / Rahul can decide this claim, or '' when a manager can. */
 function adminReason(c, limit) {
+  const sp = splitParts_(c);
+  if (sp) {
+    if (sp.total > limit) return 'above ₹' + limit + ' (₹' + sp.total + ' in all)';
+    if (/-R$/.test(clean(c['Claim ID']))) return adminReason(sp.main, limit);
+  }
   if (money(c['Amount (₹)']) > limit) return 'above ₹' + limit;
   if (['Approver', 'Admin'].indexOf(ownerRole(c)) >= 0) return 'claim of a manager';
   if (odoDatesDiffer(c)) return 'odometer photos on different dates';
@@ -334,6 +339,23 @@ function adminReason(c, limit) {
 }
 /** Only Atul / Rahul (Admin): above the limit, claims of managers, fuel claims with photos on different dates. */
 function needsAdmin(c, limit) { return adminReason(c, limit) !== ''; }
+
+/**
+ * A claim split because the advance did not cover it is one expense in two rows (ID and ID-R):
+ * the approval rules look at the whole amount, and at the first row for everything else.
+ */
+let SPLIT_INDEX = null;
+function splitParts_(c) {
+  const id = clean(c['Claim ID']);
+  const base = id.replace(/-R$/, '');
+  if (!SPLIT_INDEX) {
+    SPLIT_INDEX = {};
+    rows(LOG).forEach(function (r) { const k = clean(r['Claim ID']); if (k) SPLIT_INDEX[k] = r; });
+  }
+  const main = SPLIT_INDEX[base], rest = SPLIT_INDEX[base + '-R'];
+  if (!main || !rest) return null;
+  return { main: main, total: money(money(main['Amount (₹)']) + money(rest['Amount (₹)'])) };
+}
 function canDecide(u, c, limit) {
   if (!canApprove(u)) return false;
   return isAdmin(u) || !needsAdmin(c, limit);
@@ -690,12 +712,8 @@ function submitClaim(d) {
     let payBy = paidBy;
     let mainAmt = amount;
     let extra = 0;
-    if (fuel && paidBy === 'Advance') {
-      // a fuel claim is never split, but with no advance left it cannot be against the advance
-      const fb = balanceFor(u.name, u.id, rows(LOG), rows(ADV));
-      if (money(fb.advanceBalance - fb.advancePending) <= 0) payBy = 'Self';
-    }
-    if (!fuel && paidBy === 'Advance') {
+    // the same for fuel (journeys) and every other claim
+    if (paidBy === 'Advance') {
       const bal = balanceFor(u.name, u.id, rows(LOG), rows(ADV));
       const avail = Math.max(0, money(bal.advanceBalance - bal.advancePending));
       if (amount > avail) {
@@ -752,6 +770,9 @@ function submitClaim(d) {
         'Claim ID': id + '-R',
         'Submitted On': now(),
         'Employee ID': u.id,
+        // a journey's second part: same bike and way of claiming (the readings and photos are on the first part)
+        'Bike': fuel ? (companyBike ? 'Company bike – ' + bikeNo : 'Own bike') : '',
+        'Claimed Via': fuel ? (viaJourney ? VIA_JOURNEY : VIA_MANUAL) : '',
       });
     }
     SpreadsheetApp.flush();
@@ -798,7 +819,7 @@ function resendClaim_(u, d, ex, v) {
   if (v.hasBill) { trash(ex['Bill Photo Link']); set['Bill Photo Link'] = billLinks_(id, u, d); }
   // from advance, but nothing left in the advance: the office pays it back instead
   let payBy = v.paidBy;
-  if (!v.fuel && payBy === 'Advance') {
+  if (payBy === 'Advance') {
     const others = rows(LOG).filter(function (r) { return r._row !== ex._row; });
     const bal = balanceFor(u.name, u.id, others, rows(ADV));
     if (money(bal.advanceBalance - bal.advancePending) <= 0) payBy = 'Self';

@@ -93,6 +93,7 @@ class ClaimFormActivity : AppCompatActivity() {
     /** A rejected claim being corrected: its photos are already with the office and stay unless retaken. */
     private var fixClaim: Claim? = null
     private var advanceLeft = 0.0
+    private var balRef: Balance? = null
     private var keepStart = false
     private var keepEnd = false
     private var remoteBills = 0
@@ -137,6 +138,7 @@ class ClaimFormActivity : AppCompatActivity() {
         val modes = Store.strings(boot, "paymentModes", Store.DEFAULT_MODES)
         val bikes = Store.strings(boot, "bikes", Store.DEFAULT_BIKES)
         val bal = Balance.from(Store.load(this, "mine")?.optJSONObject("balance") ?: boot?.optJSONObject("balance"))
+        balRef = bal
         fuelRate = Settings.fuelRate(this)
         // nothing left in the advance: the claim can only be the rider's own money
         fixClaim?.let { f ->
@@ -554,12 +556,14 @@ class ClaimFormActivity : AppCompatActivity() {
 
     private fun checkAdvance(bal: Balance) {
         if (paidBy != "Advance") { advanceNote.visibility = View.GONE; return }
-        val a = amount.text.toString().toDoubleOrNull() ?: 0.0
-        val over = a > bal.advanceBalance && bal.advanceBalance >= 0
+        // a journey's amount is worked out from the readings; the advance left is after claims still waiting
+        val a = if (Settings.isFuel(category)) (fuelCalc()?.second ?: 0.0) else (amount.text.toString().toDoubleOrNull() ?: 0.0)
+        val left = maxOf(0.0, advanceLeft)
+        val over = a > left
         advanceNote.visibility = View.VISIBLE
-        advanceNote.text = tr("आपके पास Advance: ${Fmt.rupees(bal.advanceBalance)}", "Advance with you: ${Fmt.rupees(bal.advanceBalance)}") +
-            if (over) tr("\n${Fmt.rupees(bal.advanceBalance)} Advance से कटेगा, बाकी ${Fmt.rupees(a - bal.advanceBalance)} Accounts आपको pay करेगा।",
-                "\n${Fmt.rupees(bal.advanceBalance)} comes from your advance; the rest ${Fmt.rupees(a - bal.advanceBalance)} will be paid to you by Accounts.") else ""
+        advanceNote.text = tr("आपके पास Advance: ${Fmt.rupees(left)}", "Advance with you: ${Fmt.rupees(left)}") +
+            if (over && a > 0) tr("\n${Fmt.rupees(left)} Advance से कटेगा, बाकी ${Fmt.rupees(a - left)} Accounts आपको pay करेगा।",
+                "\n${Fmt.rupees(left)} comes from your advance; the rest ${Fmt.rupees(a - left)} will be paid to you by Accounts.") else ""
         advanceNote.setTextColor(if (over) Ui.SUN_TEXT else Ui.SUN_TEXT)
     }
 
@@ -784,6 +788,7 @@ class ClaimFormActivity : AppCompatActivity() {
             a > 0 && b > 0 -> tr("आखिर की reading शुरू से ज़्यादा होनी चाहिए।", "End reading must be more than the start reading.")
             else -> tr("दोनों readings डालें: KM × ₹${Fmt.km(fuelRate)}", "Enter both readings: km × ₹${Fmt.km(fuelRate)}")
         }
+        if (::advanceNote.isInitialized) balRef?.let { checkAdvance(it) }
     }
 
     private fun submitFuel() {
@@ -829,7 +834,8 @@ class ClaimFormActivity : AppCompatActivity() {
         if (fixClaim != null) claim.put("fix", true)
         if (journeyMode) {
             JourneyTracker.km(this, claimId)?.let { claim.put("trackKm", it) }
-            JourneyTracker.stops(this, claimId, odoEnd.time ?: System.currentTimeMillis()).takeIf { it.isNotBlank() }?.let { claim.put("stops", it) }
+            PhotoStamp.parse(odoEnd.stamp).let { e -> JourneyTracker.stops(this, claimId, odoEnd.time ?: System.currentTimeMillis(), e?.lat, e?.lng) }
+                .takeIf { it.isNotBlank() }?.let { claim.put("stops", it) }
             PhotoStamp.parse(odoEnd.stamp).let { e -> JourneyTracker.gaps(this, claimId, odoEnd.time ?: System.currentTimeMillis(), e?.lat, e?.lng) }
                 .takeIf { it.isNotBlank() }?.let { claim.put("gaps", it) }
             // the route always has the places of the two odometer photos as its first and last point,
