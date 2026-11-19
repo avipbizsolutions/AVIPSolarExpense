@@ -533,8 +533,14 @@ fun android.content.Context.claimRow(c: Claim, showMember: Boolean, selected: Bo
         if (c.paidBy == "Company") add(tr("Company ने दिया", "Paid by company"))
         if (!c.hasPhoto) add(tr("Bill photo नहीं", "No bill photo"))
         if (c.odoGap != 0.0) add(tr("⚠ Odometer में ${Fmt.km(Math.abs(c.odoGap))} km का फर्क", "⚠ Odometer gap ${Fmt.km(Math.abs(c.odoGap))} km"))
+        if (c.dupOf.isNotEmpty()) add(tr("⚠ दोबारा claim तो नहीं?", "⚠ Possible double claim"))
+        if (c.longJourney) add(tr("⚠ Journey ${journeyLength(c.journeyHours)} खुली रही", "⚠ Journey open ${journeyLength(c.journeyHours)}"))
+        if (c.gpsStoppedAt.isNotBlank()) add(tr("⚠ GPS ${c.gpsStoppedAt} पर बंद", "⚠ GPS stopped at ${c.gpsStoppedAt}"))
         if (c.status == Status.REJECTED && c.remarks.isNotBlank()) add(tr("कारण: ", "Reason: ") + c.remarks)
     }
     if (extra.isNotEmpty()) addView(text(extra.joinToString(" · "), 12f, if (c.status == Status.REJECTED) Ui.DANGER else Ui.SUN_TEXT), lp().margins(context, t = 6))
     setOnClickListener { onClick() }
 }
+
+/** 30 → "30 h", 75 → "3 days". */
+fun journeyLength(h: Double): String = if (h >= 48) "${Math.round(h / 24)} " + tr("दिन", "days") else "${Math.round(h)} h"

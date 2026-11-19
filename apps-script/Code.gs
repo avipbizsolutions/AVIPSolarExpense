@@ -78,7 +78,7 @@ function doPost(e) {
   try {
     const d = JSON.parse(e.postData.contents);
     if (d.key !== SHARED_KEY) return out({ ok: false, error: 'Not allowed' });
-    BIKE_RUNS = null;
+    BIKE_RUNS = null; DUP_INDEX = null;
     const h = HANDLERS[d.kind];
     if (!h) return out({ ok: false, error: 'unknown kind' });
     const result = h(d) || {};
@@ -175,7 +175,11 @@ function rows(name) {
   return list;
 }
 
-const OPTIONAL_COLS = ['Claimed Via', 'GPS Distance (km)', 'GPS Route', 'GPS Stops'];
+const OPTIONAL_COLS = ['Claimed Via', 'GPS Distance (km)', 'GPS Route', 'GPS Stops', 'GPS Gaps'];
+/** A bill photo is required above this amount (own-bike fuel needs none: it is worked out from km). */
+const BILL_REQUIRED_ABOVE = 1000;
+/** Claims for expenses older than this many days are not accepted. */
+const MAX_CLAIM_AGE_DAYS = 30;
 /** Columns that hold plain numbers: kept in a number format, so Google never shows them as dates. */
 const NUMBER_COLS = ['KM Travelled', 'Odometer Start', 'Odometer End', 'Rate per KM (₹)', 'GPS Distance (km)'];
 const VIA_JOURNEY = 'Start journey';
@@ -188,7 +192,7 @@ const VIA_MANUAL = 'New claim';
  */
 function ensureSheet_() {
   const cache = CacheService.getScriptCache();
-  if (cache.get('sheet-ok-5')) return;
+  if (cache.get('sheet-ok-6')) return;
   const addCol = function (sh, title) {
     const last = sh.getLastColumn();
     if (sh.getMaxColumns && last >= sh.getMaxColumns()) sh.insertColumnAfter(last);
@@ -216,7 +220,7 @@ function ensureSheet_() {
     }
   }
   SpreadsheetApp.flush();
-  cache.put('sheet-ok-5', '1', 21600);
+  cache.put('sheet-ok-6', '1', 21600);
 }
 const DEFAULT_BIKES = ['Bajaj Chetak', 'HF Deluxe', 'Yamaha FZ'];
 
@@ -400,8 +404,68 @@ function claimOut(c, withMember) {
     o.stopCount = st.length;
     o.stopMin = st.reduce(function (a, x) { return a + x.min; }, 0);
   }
-  if (withMember) { o.member = clean(c['Team Member']); o.memberId = clean(c['Employee ID']); o.team = clean(c['Team']); }
+  if (withMember) {
+    // GPS gaps: where the phone gave no position for a while (battery saving, GPS off)
+    const gp = gapList_(c['GPS Gaps']);
+    if (gp.length) {
+      o.gapMin = gp.reduce(function (a, x) { return a + x.min; }, 0);
+      const endT = c['End Photo Time'] instanceof Date ? c['End Photo Time'].getTime() : 0;
+      const last = gp[gp.length - 1];
+      if (endT && endT - last.toMs < 120000) o.gpsStoppedAt = last.from;
+      o.gaps = gp.map(function (x) { return x.from + '–' + x.to + ' (' + x.min + ' min)'; });
+    }
+    // possible double claims, for the approver to look at
+    const dup = dupOf_(c);
+    if (dup.length) o.dupOf = dup;
+    o.member = clean(c['Team Member']); o.memberId = clean(c['Employee ID']); o.team = clean(c['Team']);
+  }
+  // how long the journey was open (start to end odometer photo)
+  if (isFuel(c['Category']) && c['Start Photo Time'] instanceof Date && c['End Photo Time'] instanceof Date)
+    o.journeyHours = Math.round((c['End Photo Time'].getTime() - c['Start Photo Time'].getTime()) / 360000) / 10;
   return o;
+}
+
+/** "fromMs,toMs;…" → [{from, to (hh:mm a), min, toMs}] */
+function gapList_(v) {
+  return clean(v, 3000).split(';').map(function (s) {
+    const p = s.split(',').map(Number);
+    if (p.length !== 2 || !(p[1] > p[0])) return null;
+    return { from: Utilities.formatDate(new Date(p[0]), TZ, 'hh:mm a'), to: Utilities.formatDate(new Date(p[1]), TZ, 'hh:mm a'), min: Math.round((p[1] - p[0]) / 60000), toMs: p[1] };
+  }).filter(Boolean);
+}
+
+/**
+ * Other claims of the same person that look like the same expense: same date, amount and
+ * category (not fuel), or a bike journey whose time overlaps this one. Rejected claims and the
+ * two halves of a split claim do not count.
+ */
+let DUP_INDEX = null;
+function dupOf_(c) {
+  if (clean(c['Status']) === ST.REJECTED) return [];
+  if (!DUP_INDEX) {
+    DUP_INDEX = { same: {}, rides: {} };
+    rows(LOG).forEach(function (r) {
+      if (clean(r['Status']) === ST.REJECTED || !clean(r['Claim ID'])) return;
+      const who = clean(r['Employee ID']) || clean(r['Team Member']).toLowerCase();
+      if (isFuel(r['Category'])) {
+        if (r['Start Photo Time'] instanceof Date && r['End Photo Time'] instanceof Date)
+          (DUP_INDEX.rides[who] = DUP_INDEX.rides[who] || []).push({ id: clean(r['Claim ID']), a: r['Start Photo Time'].getTime(), b: r['End Photo Time'].getTime() });
+      } else {
+        const k = who + '|' + isoDay(r['Date']) + '|' + money(r['Amount (₹)']) + '|' + clean(r['Category']);
+        (DUP_INDEX.same[k] = DUP_INDEX.same[k] || []).push(clean(r['Claim ID']));
+      }
+    });
+  }
+  const id = clean(c['Claim ID']), base = id.replace(/-R$/, '');
+  const who = clean(c['Employee ID']) || clean(c['Team Member']).toLowerCase();
+  const other = function (x) { return x !== id && x.replace(/-R$/, '') !== base; };
+  if (isFuel(c['Category'])) {
+    if (!(c['Start Photo Time'] instanceof Date) || !(c['End Photo Time'] instanceof Date)) return [];
+    const a = c['Start Photo Time'].getTime(), b = c['End Photo Time'].getTime();
+    return (DUP_INDEX.rides[who] || []).filter(function (r) { return other(r.id) && r.a < b && a < r.b; }).map(function (r) { return r.id; });
+  }
+  const k = who + '|' + isoDay(c['Date']) + '|' + money(c['Amount (₹)']) + '|' + clean(c['Category']);
+  return (DUP_INDEX.same[k] || []).filter(other);
 }
 
 /**
@@ -587,6 +651,16 @@ function submitClaim(d) {
   if (PAID_BY.indexOf(paidBy) < 0) throw new Error('Choose who paid: Self, Advance or Company.');
   const description = clean(c.description, 300);
   if (description.length < 3) throw new Error('Write what the expense was for.');
+  // a rejected claim being corrected keeps its date and is not held to these two rules again
+  if (!fixing) {
+    const day0 = new Date(); day0.setHours(0, 0, 0, 0);
+    if (toDate(c.date).getTime() < day0.getTime() - MAX_CLAIM_AGE_DAYS * 86400000)
+      throw new Error('Claims older than ' + MAX_CLAIM_AGE_DAYS + ' days cannot be sent. Speak to the office.');
+    if (amount > BILL_REQUIRED_ABOVE && !hasBill && !(fuel && !companyBike))
+      throw new Error('Add a photo of the bill: it is required for claims above ₹' + BILL_REQUIRED_ABOVE + '.');
+  }
+  // GPS gaps during the journey (the phone gave no position): "fromMs,toMs;…"
+  const gaps = viaJourney && /^[0-9,;]{3,3000}$/.test(clean(c.gaps, 3000)) ? clean(c.gaps, 3000) : '';
 
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -659,6 +733,7 @@ function submitClaim(d) {
       'GPS Distance (km)': trackKm,
       'GPS Route': route,
       'GPS Stops': stops,
+      'GPS Gaps': gaps,
     });
     if (extra > 0) {
       append(LOG, {
@@ -718,6 +793,8 @@ function resendClaim_(u, d, ex, v) {
     set['Rate per KM (₹)'] = v.rate;
     set['Bike'] = v.companyBike ? 'Company bike – ' + v.bikeNo : 'Own bike';
   }
+  if (v.amount > BILL_REQUIRED_ABOVE && !v.hasBill && !clean(ex['Bill Photo Link']) && !(v.fuel && !v.companyBike))
+    throw new Error('Add a photo of the bill: it is required for claims above ₹' + BILL_REQUIRED_ABOVE + '.');
   if (v.hasBill) { trash(ex['Bill Photo Link']); set['Bill Photo Link'] = billLinks_(id, u, d); }
   // from advance, but nothing left in the advance: the office pays it back instead
   let payBy = v.paidBy;
@@ -904,11 +981,14 @@ function decide(d) {
         return;
       }
       if ((clean(c['Status']) || ST.PENDING) !== ST.PENDING) { skipped.push(id + ': already ' + clean(c['Status'])); return; }
+      // approving keeps what is already written (e.g. "corrected and sent again · earlier rejected: …");
+      // a rejection's reason replaces it, because the phone shows it as the reason
+      const before = clean(c['Remarks']);
       setFields(LOG, c._row, {
         'Status': approve ? ST.APPROVED : ST.REJECTED,
         'Approved By': u.name,
         'Approved On': now(),
-        'Remarks': note,
+        'Remarks': approve ? clean([before, note ? 'Approved: ' + note : ''].filter(String).join(' · '), 300) : note,
       });
       done++;
     });
@@ -1028,6 +1108,12 @@ function pending(d) {
     rows(REQ).forEach(function (r) {
       if (clean(r['Status']) !== RQ.APPROVED) return;
       out.toPay.push({ id: clean(r['Request ID']), member: clean(r['Team Member']), amount: money(r['Amount (₹)']) });
+    });
+    // approved claims paid from the person's own money: accounts pays them back
+    out.claimsToPay = [];
+    rows(LOG).forEach(function (c) {
+      if (clean(c['Status']) !== ST.APPROVED || clean(c['Paid By']) !== 'Self') return;
+      out.claimsToPay.push({ id: clean(c['Claim ID']), member: clean(c['Team Member']), amount: money(c['Amount (₹)']), category: clean(c['Category']) });
     });
   }
   // the person's own claims and advance requests of the last 90 days, with their status,

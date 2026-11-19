@@ -30,6 +30,9 @@ class ClaimFormActivity : AppCompatActivity() {
         const val EXTRA_JOURNEY = "journey"
         /** Id of the person's own rejected claim, to correct and send again. */
         const val EXTRA_FIX = "fix"
+        /** Same rules as the office script. */
+        const val BILL_REQUIRED_ABOVE = 1000
+        const val MAX_AGE_DAYS = 30
     }
 
     private var date = Fmt.today()
@@ -191,7 +194,7 @@ class ClaimFormActivity : AppCompatActivity() {
         body.addView(section(tr("खर्च", "Expense")) {
             addView(label(req(tr("तारीख", "Date"))).also { topViews.add(it) })
             dateBtn = selector(Fmt.date(date), R.drawable.ic_history) {
-                pickDate(date) { d ->
+                pickDate(date, minMs = todayStart() - MAX_AGE_DAYS * 86_400_000L) { d ->
                     if ((Fmt.parseIso(d) ?: 0L) > System.currentTimeMillis()) { toast(tr("आगे की तारीख नहीं चलेगी", "A future date is not allowed")); return@pickDate }
                     date = d; dateBtn.text = Fmt.date(d)
                 }
@@ -405,6 +408,10 @@ class ClaimFormActivity : AppCompatActivity() {
         updateFuel()
     }
 
+    private fun todayStart() = java.util.Calendar.getInstance().apply {
+        set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
     private fun plain(v: Double) = if (v % 1.0 == 0.0) v.toLong().toString() else v.toString()
 
     /**
@@ -478,9 +485,35 @@ class ClaimFormActivity : AppCompatActivity() {
     }
 
     /** Saves the journey so far (start photo and reading) on the phone, as a draft. */
+    /** Battery saving must not stop the app during a journey, or the route is lost. Asked once per Start journey. */
+    private var batteryAsked = false
+    private val batteryAsk = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { saveDraft() }
+
+    private fun needsBatteryExemption(): Boolean = try {
+        !(getSystemService(POWER_SERVICE) as android.os.PowerManager).isIgnoringBatteryOptimizations(packageName)
+    } catch (_: Exception) { false }
+
     private fun saveDraft() {
         if (odoStart.photo.isBlank()) { toast(tr("पहले शुरू के odometer की photo लें", "Take the start odometer photo first")); return }
         if (odoValue(odoStart) <= 0) { odoStart.reading.error = tr("Reading डालें", "Enter the reading"); return }
+        if (starting && !batteryAsked && needsBatteryExemption()) {
+            batteryAsked = true
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(tr("🔋 Battery saving बंद करें", "🔋 Turn off battery saving for this app"))
+                .setMessage(tr("Journey के दौरान phone इस app को बंद न करे, नहीं तो रास्ता और दूरी record नहीं होगी।\nअगली screen पर \"Allow\" दबाएँ।",
+                    "So the phone does not stop this app during the journey; otherwise the route and distance are not recorded.\nTap \"Allow\" on the next screen."))
+                .setCancelable(false)
+                .setPositiveButton(tr("ठीक है", "OK")) { _, _ ->
+                    try {
+                        @android.annotation.SuppressLint("BatteryLife")
+                        val i = android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, android.net.Uri.parse("package:$packageName"))
+                        batteryAsk.launch(i)
+                    } catch (_: Exception) { saveDraft() }
+                }
+                .setNegativeButton(tr("अभी नहीं", "Not now")) { _, _ -> saveDraft() }
+                .show()
+            return
+        }
         val j = (journey ?: JSONObject()).put("id", claimId).put("date", date)
             .put("startPhoto", odoStart.photo).put("startTime", odoStart.time ?: 0L).put("startStamp", odoStart.stamp).put("startReading", odoStart.reading.text.toString().trim())
             .put("description", desc.text.toString().trim()).put("site", site.text.toString().trim()).put("district", district.text.toString().trim())
@@ -490,6 +523,7 @@ class ClaimFormActivity : AppCompatActivity() {
         Journeys.save(this, j)
         if (starting) {
             JourneyTracker.start(this, claimId)
+            JourneyReminder.overdue(this, claimId)
             val at = SimpleDateFormat("hh:mm a", Locale.ENGLISH).format(Date())
             celebrate(tr("Journey शुरू हो गई", "Journey started"), tr("$at · शुरू का odometer ${odoStart.reading.text.toString().trim()}\nलौटकर Home से Journey पूरी करें।", "$at · start odometer ${odoStart.reading.text.toString().trim()}\nFinish it from Home when you are back."), start = true) { finish() }
             return
@@ -572,6 +606,14 @@ class ClaimFormActivity : AppCompatActivity() {
         if (a > 500000) { amount.error = tr("Amount सही नहीं लगता", "Amount looks wrong"); return }
         if (desc.text.toString().trim().length < 3) { desc.error = tr("किस काम के लिए था, लिखें", "Write what it was for"); return }
         if (paymentMode.isBlank()) { toast(tr("Payment कैसे किया, चुनें", "Choose how it was paid")); return }
+        if (fixClaim == null && (Fmt.parseIso(date) ?: 0L) < todayStart() - MAX_AGE_DAYS * 86_400_000L) {
+            toast(tr("$MAX_AGE_DAYS दिन से पुराने खर्च का claim नहीं भेजा जा सकता। Office से बात करें।", "Claims older than $MAX_AGE_DAYS days cannot be sent. Speak to the office.")); return
+        }
+        if (photos.isEmpty() && remoteBills == 0 && a > BILL_REQUIRED_ABOVE) {
+            toast(tr("₹${BILL_REQUIRED_ABOVE} से ऊपर के claim में bill की photo ज़रूरी है।", "A bill photo is required for claims above ₹$BILL_REQUIRED_ABOVE."))
+            photoBox.requestFocus()
+            return
+        }
         if (photos.isEmpty() && remoteBills == 0 && a > 500) {
             confirm(tr("Bill photo नहीं है", "No bill photo"), tr("₹500 से ऊपर के claim में bill ज़रूरी है। बिना bill के claim reject हो सकता है। फिर भी भेजें?", "A bill is required for claims above ₹500. Without it the claim may be rejected. Send anyway?"), tr("भेजें", "Send")) { save(a) }
             return
@@ -788,6 +830,8 @@ class ClaimFormActivity : AppCompatActivity() {
         if (journeyMode) {
             JourneyTracker.km(this, claimId)?.let { claim.put("trackKm", it) }
             JourneyTracker.stops(this, claimId, odoEnd.time ?: System.currentTimeMillis()).takeIf { it.isNotBlank() }?.let { claim.put("stops", it) }
+            PhotoStamp.parse(odoEnd.stamp).let { e -> JourneyTracker.gaps(this, claimId, odoEnd.time ?: System.currentTimeMillis(), e?.lat, e?.lng) }
+                .takeIf { it.isNotBlank() }?.let { claim.put("gaps", it) }
             // the route always has the places of the two odometer photos as its first and last point,
             // so the office sees where the journey started and ended even if GPS gave nothing on the way
             val pt = { s: PhotoStamp.Info? -> s?.let { String.format(java.util.Locale.US, "%.5f,%.5f", it.lat, it.lng) } }

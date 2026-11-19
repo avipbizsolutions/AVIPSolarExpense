@@ -80,6 +80,33 @@ class JourneyTracker : Service(), LocationListener {
         fun route(c: Context, journeyId: String): String =
             try { JSONObject(prefs(c).getString("j_$journeyId", "") ?: "").optString("r") } catch (_: Exception) { "" }
 
+        /** No GPS position for this long while the phone moved at least GAP_MIN_M: a gap in the route. */
+        private const val GAP_MIN_MS = 5 * 60_000L
+        private const val GAP_MIN_M = 500f
+
+        private fun addGap(o: JSONObject, from: Long, to: Long) {
+            o.put("g", listOf(o.optString("g"), "$from,$to").filter { it.isNotBlank() }.takeLast(40).joinToString(";"))
+        }
+
+        /**
+         * The gaps of a journey as "fromMs,toMs;…". When the last GPS position is long before the end
+         * odometer photo and far from where it was taken, the GPS stopped before the end: that is a gap too.
+         */
+        fun gaps(c: Context, journeyId: String, endMs: Long, endLat: Double?, endLng: Double?): String {
+            val o = try { JSONObject(prefs(c).getString("j_$journeyId", "") ?: "") } catch (_: Exception) { return "" }
+            val first = o.optLong("from", 0L)
+            if (!o.has("lf")) {
+                // no position at all after Start journey
+                return if (first > 0 && endMs - first >= GAP_MIN_MS) "$first,$endMs" else ""
+            }
+            if (endLat != null && endLng != null && endMs - o.optLong("lf") >= GAP_MIN_MS) {
+                val d = FloatArray(1)
+                Location.distanceBetween(o.optDouble("lflat"), o.optDouble("lflng"), endLat, endLng, d)
+                if (d[0] >= GAP_MIN_M) addGap(o, o.optLong("lf"), endMs)
+            }
+            return o.optString("g")
+        }
+
         /** A halt of at least this long, in one place, is listed as a stoppage. */
         const val STOP_MIN_MS = 3 * 60_000L
         /** Moved less than this from where it halted: still the same stoppage. */
@@ -166,6 +193,14 @@ class JourneyTracker : Service(), LocationListener {
             return
         }
         val now = System.currentTimeMillis()
+        // ---- GPS gaps: no position for a while, and the phone is now far from where it last was,
+        // so it moved without being followed (battery saving stopped the app, GPS was off)
+        if (o.has("lf")) {
+            val g = FloatArray(1)
+            Location.distanceBetween(o.optDouble("lflat"), o.optDouble("lflng"), loc.latitude, loc.longitude, g)
+            if (now - o.optLong("lf") >= GAP_MIN_MS && g[0] >= GAP_MIN_M) addGap(o, o.optLong("lf"), now)
+        }
+        o.put("lf", now).put("lflat", loc.latitude).put("lflng", loc.longitude)
         // ---- stoppages: where the phone stays within ~60 m, and since when
         if (!o.has("hlat")) o.put("hlat", loc.latitude).put("hlng", loc.longitude).put("ht", now)
         else {

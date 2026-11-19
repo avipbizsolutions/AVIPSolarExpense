@@ -70,26 +70,31 @@ object ApprovalAlerts {
         val claims = items(r.optJSONArray("claims"))
         val advances = items(r.optJSONArray("advances"))
         val toPay = items(r.optJSONArray("toPay"))
+        // approved claims from the person's own money: accounts pays them back
+        val claimsToPay = items(r.optJSONArray("claimsToPay"))
 
         val prefs = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val seen = prefs.getStringSet("seen_" + u.id, emptySet()) ?: emptySet()
-        val now = (claims.map { "c:" + it.optString("id") } + advances.map { "a:" + it.optString("id") } + toPay.map { "p:" + it.optString("id") }).toSet()
+        val now = (claims.map { "c:" + it.optString("id") } + advances.map { "a:" + it.optString("id") } + toPay.map { "p:" + it.optString("id") } + claimsToPay.map { "q:" + it.optString("id") }).toSet()
         // remember only what is still waiting, so the list stays small
         prefs.edit().putStringSet("seen_" + u.id, now).apply()
 
         val newClaims = claims.filter { "c:" + it.optString("id") !in seen }
         val newAdv = advances.filter { "a:" + it.optString("id") !in seen }
         val newPay = toPay.filter { "p:" + it.optString("id") !in seen }
-        if (newClaims.isEmpty() && newAdv.isEmpty() && newPay.isEmpty()) return
+        val newClaimPay = claimsToPay.filter { "q:" + it.optString("id") !in seen }
+        if (newClaims.isEmpty() && newAdv.isEmpty() && newPay.isEmpty() && newClaimPay.isEmpty()) return
 
         val lines = mutableListOf<String>()
         newClaims.forEach { lines.add("Claim · " + it.optString("member") + " · " + Fmt.rupees(it.optDouble("amount")) + " · " + it.optString("category")) }
         newAdv.forEach { lines.add("Advance · " + it.optString("member") + " · " + Fmt.rupees(it.optDouble("amount")) + " · " + it.optString("purpose")) }
         newPay.forEach { lines.add(tr("Payment बाकी · ", "To pay · ") + it.optString("member") + " · " + Fmt.rupees(it.optDouble("amount"))) }
+        newClaimPay.forEach { lines.add(tr("Claim का payment · ", "Claim to pay back · ") + it.optString("member") + " · " + Fmt.rupees(it.optDouble("amount")) + " · " + it.optString("category")) }
 
         val parts = mutableListOf<String>()
         if (newClaims.isNotEmpty()) parts.add(tr("${newClaims.size} नया Claim", "${newClaims.size} new claim" + if (newClaims.size > 1) "s" else ""))
         if (newAdv.isNotEmpty()) parts.add(tr("${newAdv.size} Advance request", "${newAdv.size} advance request" + if (newAdv.size > 1) "s" else ""))
+        if (newClaimPay.isNotEmpty()) parts.add(tr("${newClaimPay.size} Claim का payment बाकी", "${newClaimPay.size} claim" + (if (newClaimPay.size > 1) "s" else "") + " to pay back"))
         if (newPay.isNotEmpty()) parts.add(tr("${newPay.size} Advance payment बाकी", "${newPay.size} advance" + (if (newPay.size > 1) "s" else "") + " to pay"))
         val title = parts.joinToString(" · ") + tr(" — Approval के लिए", "")
         val waiting = claims.size + advances.size

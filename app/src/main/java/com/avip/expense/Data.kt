@@ -66,10 +66,19 @@ data class Claim(
     val hasRoute: Boolean = false,
     /** Stoppages of 3 minutes or more during the journey (approvers only), and their total minutes. */
     val stopCount: Int = 0, val stopMin: Int = 0,
+    /** Minutes without GPS on the way, when the GPS stopped before the end ("11:15 AM"), and each gap (approvers only). */
+    val gapMin: Int = 0, val gpsStoppedAt: String = "", val gaps: List<String> = emptyList(),
+    /** Other claims of the same person that look like the same expense (approvers only). */
+    val dupOf: List<String> = emptyList(),
+    /** Fuel: hours from the start to the end odometer photo. */
+    val journeyHours: Double = 0.0,
 ) {
+    /** Open longer than 12 hours: flagged for the approver. */
+    val longJourney get() = journeyHours > 12
     val isFuel get() = Settings.isFuel(category)
 
     companion object {
+        private fun strings(a: org.json.JSONArray?): List<String> = (0 until (a?.length() ?: 0)).map { a!!.optString(it) }.filter { it.isNotBlank() }
         fun from(o: JSONObject) = Claim(
             o.optString("id"), o.optString("date"), o.optString("billNo"), o.optString("category"),
             o.optString("description"), o.optString("site"), o.optString("district"), o.optDouble("km", 0.0),
@@ -89,6 +98,8 @@ data class Claim(
             // an office script older than this rule sends neither flag: no warning then
             if (o.has("viaJourney")) o.optBoolean("viaJourney") else if (o.has("journey")) o.optBoolean("journey") else true, o.optDouble("trackKm", -1.0), o.optBoolean("hasRoute"),
             o.optInt("stopCount"), o.optInt("stopMin"),
+            o.optInt("gapMin"), o.optString("gpsStoppedAt"), strings(o.optJSONArray("gaps")),
+            strings(o.optJSONArray("dupOf")), o.optDouble("journeyHours", 0.0),
         )
 
         fun list(a: JSONArray?): List<Claim> = (0 until (a?.length() ?: 0)).map { from(a!!.getJSONObject(it)) }

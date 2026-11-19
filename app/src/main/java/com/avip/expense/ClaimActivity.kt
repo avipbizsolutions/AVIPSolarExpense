@@ -70,6 +70,12 @@ class ClaimActivity : AppCompatActivity() {
         }
         if (c.status == Status.REJECTED) body.addView(note(tr("Reject का कारण: ", "Reason for rejection: ") + c.remarks.ifBlank { "—" } + "\n" + c.approvedBy + " · " + Fmt.date(c.approvedOn), Ui.DANGER_LIGHT, Ui.DANGER))
 
+        if (u.seesTeam && c.dupOf.isNotEmpty()) body.addView(note(tr("⚠ दोबारा claim तो नहीं? इसी व्यक्ति का ऐसा ही claim और है: ", "⚠ Possible double claim. This person has a similar claim: ") + c.dupOf.joinToString(", ") +
+            (if (c.isFuel) tr(" (journey का समय एक-दूसरे पर चढ़ता है)", " (the journey times overlap)") else tr(" (वही तारीख, amount और category)", " (same date, amount and category)")), Ui.SUN_LIGHT, Ui.SUN_TEXT).apply {
+            setOnClickListener {
+                startActivity(android.content.Intent(this@ClaimActivity, ClaimActivity::class.java).putExtra(EXTRA_ID, c.dupOf.first()))
+            }
+        }, lp().margins(this, b = 10))
         body.addView(section(tr("जानकारी", "Details")) {
             addView(kv(tr("तारीख", "Date"), Fmt.date(c.date)))
             if (full) addView(kv(tr("किस चीज़ का खर्च", "Category"), c.category))
@@ -100,6 +106,15 @@ class ClaimActivity : AppCompatActivity() {
                     if (c.km > 0 && diff > maxOf(3.0, c.trackKm * 0.2)) addView(text(tr("⚠ Odometer की दूरी GPS से ${Fmt.km(Math.round(diff * 10) / 10.0)} km ज़्यादा है।", "⚠ The odometer distance is ${Fmt.km(Math.round(diff * 10) / 10.0)} km more than GPS measured."), 13f, Ui.DANGER, bold = true), lp().margins(context, t = 4))
                     if (c.trackKm == 0.0) addView(text(tr("GPS चालू था, पर phone कहीं गया नहीं।", "GPS was on, but the phone did not move."), 13f, Ui.DANGER, bold = true), lp().margins(context, t = 4))
                 } else if (u.seesTeam && c.status != Status.QUEUED && c.viaJourney) addView(kv(tr("GPS से नापी दूरी", "Distance by GPS"), tr("नहीं मिली (GPS / app बंद)", "not recorded (GPS or app was off)")))
+                // the GPS lost the phone on the way, or stopped before the end
+                if (u.seesTeam && c.gapMin > 0) {
+                    addView(kv(tr("GPS नहीं मिला", "No GPS"), tr("${c.gaps.size} बार · कुल ${Fmt.minutes(c.gapMin)}", "${c.gaps.size} · total ${Fmt.minutes(c.gapMin)}"), bold = true))
+                    addView(text((if (c.gpsStoppedAt.isNotBlank()) tr("⚠ GPS ${c.gpsStoppedAt} पर बंद हो गया और journey के आखिर तक नहीं चला। ", "⚠ GPS stopped at ${c.gpsStoppedAt} and did not come back before the end. ") else "") +
+                        c.gaps.joinToString(", ") + tr(" — इस समय का रास्ता और दूरी नहीं नापी गई (phone की battery saving या GPS बंद)।", ": route and distance not measured then (battery saving or GPS off on the phone)."),
+                        12.5f, Ui.SUN_TEXT, bold = c.gpsStoppedAt.isNotBlank()), lp().margins(context, t = 2, b = 4))
+                }
+                if (u.seesTeam && c.longJourney) addView(text(tr("⚠ यह journey ${journeyLength(c.journeyHours)} तक खुली रही (शुरू से आखिर की photo तक)। Odometer और दूरी ध्यान से देखें।",
+                    "⚠ This journey was open for ${journeyLength(c.journeyHours)} (start to end photo). Check the odometer and the distance carefully."), 12.5f, Ui.SUN_TEXT, bold = true), lp().margins(context, t = 2, b = 4))
                 if (u.seesTeam && c.stopCount > 0) addView(kv(tr("रुकना (3 min+)", "Stoppages (3 min+)"),
                     tr("${c.stopCount} बार · कुल ${Fmt.minutes(c.stopMin)}", "${c.stopCount} · total ${Fmt.minutes(c.stopMin)}"), bold = true))
                 if (u.seesTeam && c.hasRoute) addView(pillButton(tr("रास्ते का Map देखें", "View route map"), Ui.BRAND_LIGHT, Ui.BRAND_DARK, heightDp = 44, iconRes = R.drawable.ic_location) {

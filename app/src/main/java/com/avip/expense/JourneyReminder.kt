@@ -46,6 +46,25 @@ object JourneyReminder {
         WorkManager.getInstance(c).enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.KEEP, req)
     }
 
+    /** 12 hours after Start journey: if that journey is still open, the rider is reminded. */
+    fun overdue(c: Context, journeyId: String) {
+        val req = androidx.work.OneTimeWorkRequestBuilder<OverdueWorker>()
+            .setInitialDelay(12, TimeUnit.HOURS)
+            .setInputData(androidx.work.workDataOf("id" to journeyId))
+            .build()
+        WorkManager.getInstance(c).enqueueUniqueWork("journey-overdue-$journeyId", androidx.work.ExistingWorkPolicy.REPLACE, req)
+    }
+
+    class OverdueWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
+        override suspend fun doWork(): Result {
+            try {
+                val id = inputData.getString("id").orEmpty()
+                if (id.isNotBlank() && Journeys.get(applicationContext, id) != null) check(applicationContext, overdue = true)
+            } catch (_: Exception) {}
+            return Result.success()
+        }
+    }
+
     fun stop(c: Context) {
         WorkManager.getInstance(c).cancelUniqueWork(WORK)
         try { NotificationManagerCompat.from(c).cancel(NOTE_ID) } catch (_: Exception) {}
@@ -56,7 +75,7 @@ object JourneyReminder {
         if (Journeys.all(c).isEmpty()) try { NotificationManagerCompat.from(c).cancel(NOTE_ID) } catch (_: Exception) {}
     }
 
-    fun check(c: Context) {
+    fun check(c: Context, overdue: Boolean = false) {
         if (Session.user(c) == null) return
         Lang.load(c)
         val open = Journeys.all(c)
@@ -75,7 +94,8 @@ object JourneyReminder {
             val t = j.optLong("startTime", 0L).takeIf { it > 0 } ?: j.optLong("savedAt")
             tr("शुरू: ", "Started: ") + fmt.format(Date(t)) + (if (j.optString("description").isNotBlank()) " · " + j.optString("description") else "")
         }
-        val title = if (open.size == 1) tr("Journey अभी पूरी नहीं हुई", "Your journey is not finished")
+        val title = if (overdue) tr("⏰ Journey 12 घंटे से खुली है", "⏰ Your journey has been open for 12 hours")
+            else if (open.size == 1) tr("Journey अभी पूरी नहीं हुई", "Your journey is not finished")
             else tr("${open.size} Journey अभी पूरी नहीं हुईं", "${open.size} journeys are not finished")
         val msg = tr("आखिर के odometer की photo लें और Claim भेजें।", "Take the end odometer photo and send the claim.")
         val intent = c.packageManager.getLaunchIntentForPackage(c.packageName)?.apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP }

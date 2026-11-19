@@ -82,12 +82,15 @@ fun Activity.askText(title: String, hint: String, initial: String = "", required
     d.show()
 }
 
-fun Activity.pickDate(initialIso: String, onPick: (String) -> Unit) {
+fun Activity.pickDate(initialIso: String, minMs: Long? = null, onPick: (String) -> Unit) {
     val cal = Calendar.getInstance()
     Fmt.parseIso(initialIso)?.let { cal.timeInMillis = it }
     DatePickerDialog(this, { _, y, m, d ->
         onPick(String.format(java.util.Locale.US, "%04d-%02d-%02d", y, m + 1, d))
-    }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
+    }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).apply {
+        // dates outside the allowed range cannot be picked at all
+        if (minMs != null) { datePicker.minDate = minMs; datePicker.maxDate = System.currentTimeMillis() }
+    }.show()
 }
 
 fun Activity.openUrl(url: String) {
