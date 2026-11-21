@@ -1,6 +1,6 @@
 /**
  * AVIP Auth: one login for all AVIP Solar internal apps
- * (AVIP Solar Sales, AVIP Solar Installation, AVIP Solar Expense).
+ * (AVIP Solar Sales, AVIP Solar Installation, AVIP Solar Expense, Bihar Solar Circle).
  *
  * Bound to the Google Sheet "AVIP Team Directory (Confidential)".
  * That sheet is never shared. Phones never call this script directly:
@@ -16,7 +16,7 @@
  *
  * Users tab (one row per person):
  *   Employee ID | Name | Mobile | Designation | Team | Status | Sales App Role |
- *   Installation App Role | Expense App Role | PIN | PIN Salt | Must Set PIN |
+ *   Installation App Role | Expense App Role | Solar Circle Role | PIN | PIN Salt | Must Set PIN |
  *   Failed Attempts | Locked Until | Device ID | Last Login | Added On
  *
  *   PIN: the office types a temporary 4-digit PIN. At first login the person
@@ -36,8 +36,9 @@ const APP_ROLE_COLUMN = {
   sales: 'Sales App Role',
   installation: 'Installation App Role',
   expense: 'Expense App Role',
+  circle: 'Solar Circle Role',
 };
-const APP_NAME = { sales: 'AVIP Solar Sales', installation: 'AVIP Solar Installation', expense: 'AVIP Solar Expense' };
+const APP_NAME = { sales: 'AVIP Solar Sales', installation: 'AVIP Solar Installation', expense: 'AVIP Solar Expense', circle: 'Bihar Solar Circle' };
 
 const WEAK_PINS = ['0000', '1111', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9999',
   '1234', '2345', '3456', '4567', '5678', '6789', '4321', '9876', '1212', '1122', '0123', '1004', '2580'];
@@ -151,10 +152,10 @@ function readUsers() {
   const sh = sheet();
   const values = sh.getDataRange().getValues();
   const headers = values[0].map(clean);
-  const col = function (name, alt) {
+  const col = function (name, alt, optional) {
     let i = headers.indexOf(name);
     if (i < 0 && alt) i = headers.indexOf(alt);
-    if (i < 0) throw new Error('Column missing in Users tab: ' + name);
+    if (i < 0 && !optional) throw new Error('Column missing in Users tab: ' + name);
     return i;
   };
   const c = {
@@ -163,6 +164,7 @@ function readUsers() {
     must: col('Must Set PIN'), fails: col('Failed Attempts'), locked: col('Locked Until'),
     device: col('Device ID'), last: col('Last Login'),
     sales: col('Sales App Role'), installation: col('Installation App Role'), expense: col('Expense App Role'),
+    circle: col('Solar Circle Role', null, true),
   };
   const list = [];
   for (let r = 1; r < values.length; r++) {
@@ -177,7 +179,8 @@ function readUsers() {
       must: v[c.must] === true || clean(v[c.must]).toUpperCase() === 'TRUE',
       fails: Number(v[c.fails]) || 0,
       locked: v[c.locked] instanceof Date ? v[c.locked] : null,
-      roles: { sales: clean(v[c.sales]), installation: clean(v[c.installation]), expense: clean(v[c.expense]) },
+      roles: { sales: clean(v[c.sales]), installation: clean(v[c.installation]), expense: clean(v[c.expense]),
+        circle: c.circle < 0 ? '' : clean(v[c.circle]) },
     });
   }
   return { list: list, col: c, sh: sh };
