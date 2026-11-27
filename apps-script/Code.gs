@@ -79,6 +79,8 @@ function doPost(e) {
     const d = JSON.parse(e.postData.contents);
     if (d.key !== SHARED_KEY) return out({ ok: false, error: 'Not allowed' });
     BIKE_RUNS = null; DUP_INDEX = null; SPLIT_INDEX = null;
+    // the ERP server (erp.avipsolar.in) reads a full copy; it has its own key and is not an app
+    if (d.kind === 'erpExport') return out(Object.assign({ ok: true }, erpExport_(d)));
     // updates are compulsory: an app older than the latest release gets no data, only "update"
     const need = requiredVersion_();
     // apps from before this check (1.0.161 and older) send no version: they count as 1.0.161
@@ -95,6 +97,39 @@ function doPost(e) {
   } catch (err) {
     return out({ ok: false, error: String((err && err.message) || err) });
   }
+}
+
+/**
+ * Read-only copy of the three data tabs for the ERP server. Allowed only with the key kept in
+ * Script Properties as ERP_SYNC_KEY (never in the code): without that property, nothing is given.
+ * Dates go as "yyyy-MM-dd HH:mm:ss" (India time); everything else as it is in the sheet.
+ */
+function erpExport_(d) {
+  const want = String(PropertiesService.getScriptProperties().getProperty('ERP_SYNC_KEY') || '');
+  const got = String(d.syncKey || '');
+  if (want.length < 24 || got.length !== want.length) throw new Error('Not allowed');
+  let diff = 0;
+  for (let i = 0; i < want.length; i++) diff |= want.charCodeAt(i) ^ got.charCodeAt(i);
+  if (diff !== 0) throw new Error('Not allowed');
+  const dump = function (name) {
+    const sh = book().getSheetByName(name);
+    if (!sh) return { headers: [], rows: [] };
+    const lastCol = sh.getLastColumn(), n = lastRow(sh);
+    const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function (x) { return String(x).trim(); });
+    const vals = n < 2 ? [] : sh.getRange(2, 1, n - 1, lastCol).getValues();
+    const rows = [];
+    vals.forEach(function (r, i) {
+      if (String(r[0]).trim() === '') return;
+      rows.push([i + 2].concat(r.map(function (v) {
+        return v instanceof Date ? Utilities.formatDate(v, TZ, 'yyyy-MM-dd HH:mm:ss') : v;
+      })));
+    });
+    return { headers: headers, rows: rows };
+  };
+  let people = [];
+  try { people = authUsers_(APP).map(function (p) { return { id: p.id, name: p.name, team: p.team, role: p.role }; }); } catch (_) {}
+  return { at: Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm:ss'), people: people,
+    claims: dump(LOG), advances: dump(ADV), requests: dump(REQ) };
 }
 
 /**
